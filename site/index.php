@@ -38,9 +38,11 @@ function escape(string $value): string
         body {
             min-height: 100vh;
             margin: 0;
+            padding: 1rem;
             display: grid;
             place-items: center;
-            overflow: hidden;
+            overflow-x: hidden;
+            overflow-y: auto;
             color: #f8fafc;
             background:
                 radial-gradient(circle at 50% 35%, rgba(249, 115, 22, .2), transparent 28rem),
@@ -114,6 +116,24 @@ function escape(string $value): string
         @media (prefers-reduced-motion: reduce) {
             .fire {
                 animation: none;
+            }
+        }
+
+        @media (max-height: 36rem) {
+            main {
+                padding-block: 1.5rem;
+            }
+
+            .fire {
+                font-size: 4rem;
+            }
+
+            h1 {
+                margin-top: .75rem;
+            }
+
+            .status {
+                margin-top: 1.25rem;
             }
         }
     </style>

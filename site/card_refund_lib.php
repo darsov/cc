@@ -492,7 +492,7 @@ function ccRefundQueue(PDO $pdo, array $records, int $submittedByUserId): array
             } elseif ((string)$existing['queue_status'] === 'pending'
                 && hash_equals((string)$existing['payload_hash'], $payloadHash)) {
                 $skipped++;
-                $operation = 'Без изменений.';
+                $operation = 'Уже загружено ранее — изменений нет.';
             } else {
                 $update->execute([
                     'payload_hash' => $payloadHash,

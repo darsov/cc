@@ -122,48 +122,75 @@ function ccRefundReadWorksheet(ZipArchive $zip): array
     return $rows;
 }
 
-function ccRefundDate(string $value, int $rowNumber): string
+function ccRefundNormalizeExcelInteger(string $value): string
+{
+    $value = trim(str_replace("\u{00A0}", ' ', $value));
+    if (preg_match('/^\d+\.0+$/', $value)) {
+        return strstr($value, '.', true) ?: $value;
+    }
+    return $value;
+}
+
+function ccRefundCardNumberValue(string $value): array
+{
+    $value = ccRefundNormalizeExcelInteger($value);
+    if ($value === '') {
+        return ['', 'Не указан номер подарочной карты.'];
+    }
+    if (!preg_match('/^(?:\d{10}|\d{20})$/', $value)) {
+        return [$value, 'Номер подарочной карты должен содержать 10 или 20 цифр.'];
+    }
+    return [$value, null];
+}
+
+function ccRefundOptionalDateValue(string $value, bool $numeric): array
 {
     $value = trim($value);
     if ($value === '') {
-        throw new RuntimeException("Строка {$rowNumber}: не заполнена дата обращения клиента.");
+        return ['', null];
     }
-    if (is_numeric($value)) {
-        $serial = (float)$value;
-        if ($serial <= 0 || $serial > 100000) {
-            throw new RuntimeException("Строка {$rowNumber}: некорректная дата обращения клиента.");
+
+    if ($numeric) {
+        if (!is_numeric($value) || (float)$value <= 0 || (float)$value > 100000) {
+            return ['', 'Неверный формат даты обращения (ожидается ДД.ММ.ГГГГ).'];
         }
-        $seconds = (int)round(($serial - 25569) * 86400);
-        return (new DateTimeImmutable('@' . $seconds))
-            ->setTimezone(new DateTimeZone('UTC'))
-            ->format('Y-m-d');
+        $seconds = (int)round(((float)$value - 25569) * 86400);
+        return [
+            (new DateTimeImmutable('@' . $seconds))->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d'),
+            null,
+        ];
     }
-    foreach (['!d.m.Y', '!Y-m-d', '!d/m/Y'] as $format) {
-        $date = DateTimeImmutable::createFromFormat($format, $value);
-        if ($date !== false && $date->format(substr($format, 1)) === $value) {
-            return $date->format('Y-m-d');
-        }
+
+    $date = DateTimeImmutable::createFromFormat('!d.m.Y', $value);
+    if ($date === false || $date->format('d.m.Y') !== $value) {
+        return ['', 'Неверный формат даты обращения (ожидается ДД.ММ.ГГГГ).'];
     }
-    throw new RuntimeException("Строка {$rowNumber}: дата обращения не распознана — {$value}.");
+    return [$date->format('Y-m-d'), null];
 }
 
-function ccRefundDigits(string $value, int $length, string $label, int $rowNumber): string
+function ccRefundOptionalDigitsValue(string $value, int $length, string $errorMessage): array
 {
-    $value = trim(str_replace("\u{00A0}", ' ', $value));
-    if (preg_match('/[eE][+-]?\d+/', $value)) {
-        throw new RuntimeException(
-            "Строка {$rowNumber}: {$label} сохранён Excel в научном формате. "
-            . 'Задайте колонке текстовый формат и вставьте исходный номер заново.'
-        );
+    $value = ccRefundNormalizeExcelInteger($value);
+    if ($value === '') {
+        return ['', null];
     }
-    if (preg_match('/^\d+\.0+$/', $value)) {
-        $value = strstr($value, '.', true) ?: $value;
-    }
-    $value = preg_replace('/[\s-]+/u', '', $value) ?? $value;
     if (!preg_match('/^\d{' . $length . '}$/', $value)) {
-        throw new RuntimeException("Строка {$rowNumber}: {$label} должен состоять из {$length} цифр.");
+        return ['', $errorMessage];
     }
-    return $value;
+    return [$value, null];
+}
+
+function ccRefundOptionalFullNameValue(string $value): array
+{
+    $value = trim(preg_replace('/\s+/u', ' ', $value) ?? $value);
+    if ($value === '') {
+        return ['', null];
+    }
+    if (mb_strlen($value, 'UTF-8') > 255
+        || !preg_match('/^\p{Cyrillic}+(?:[\s-]+\p{Cyrillic}+)*$/u', $value)) {
+        return ['', 'ФИО не на кириллице.'];
+    }
+    return [$value, null];
 }
 
 function ccRefundReadXlsx(string $path, int $fileSize): array
@@ -226,21 +253,8 @@ function ccRefundReadXlsx(string $path, int $fileSize): array
             }
         }
     }
-    $missing = array_diff(array_keys($aliases), array_keys($columns));
-    if ($missing) {
-        $labels = [
-            'card_number' => 'Номер подарочной карты',
-            'client_contact_date' => 'Дата обращения клиента',
-            'request_number' => 'Номер обращения',
-            'customer_full_name' => 'ФИО',
-            'bank_bic' => 'БИК',
-            'bank_account' => 'Расчётный счёт',
-        ];
-        throw new RuntimeException(
-            'В XLSX не найдены обязательные колонки: '
-            . implode(', ', array_map(static fn(string $field): string => $labels[$field], $missing))
-            . '.'
-        );
+    if (!array_key_exists('card_number', $columns)) {
+        throw new RuntimeException('В XLSX не найдена обязательная колонка: Номер подарочной карты.');
     }
 
     $records = [];
@@ -248,8 +262,11 @@ function ccRefundReadXlsx(string $path, int $fileSize): array
         $rowNumber = $rowIndex + 2;
         $values = [];
         $numericCells = [];
-        foreach ($columns as $field => $columnIndex) {
-            $cell = $row[$columnIndex] ?? ['value' => '', 'numeric' => false];
+        foreach (array_keys($aliases) as $field) {
+            $columnIndex = $columns[$field] ?? null;
+            $cell = $columnIndex !== null
+                ? ($row[$columnIndex] ?? ['value' => '', 'numeric' => false])
+                : ['value' => '', 'numeric' => false];
             $values[$field] = trim((string)($cell['value'] ?? ''));
             $numericCells[$field] = (bool)($cell['numeric'] ?? false);
         }
@@ -260,41 +277,49 @@ function ccRefundReadXlsx(string $path, int $fileSize): array
             throw new RuntimeException('В одном XLSX допускается не более 5000 обращений.');
         }
 
-        $cardNumber = preg_replace('/\s+/u', '', $values['card_number']) ?? '';
-        if ($cardNumber === '' || mb_strlen($cardNumber, 'UTF-8') > 100) {
-            throw new RuntimeException("Строка {$rowNumber}: некорректный номер подарочной карты.");
-        }
-        if (preg_match('/[eE][+-]?\d+/', $cardNumber)) {
-            throw new RuntimeException(
-                "Строка {$rowNumber}: номер подарочной карты сохранён Excel в научном формате. "
-                . 'Задайте колонке текстовый формат и вставьте номер заново.'
-            );
-        }
-        if ($numericCells['card_number'] && strlen($cardNumber) > 15) {
-            throw new RuntimeException(
-                "Строка {$rowNumber}: длинный номер подарочной карты должен быть сохранён в Excel как текст."
-            );
-        }
-        if ($values['request_number'] === '' || mb_strlen($values['request_number'], 'UTF-8') > 100) {
-            throw new RuntimeException("Строка {$rowNumber}: номер обращения обязателен.");
-        }
-        if ($values['customer_full_name'] === '' || mb_strlen($values['customer_full_name'], 'UTF-8') > 255) {
-            throw new RuntimeException("Строка {$rowNumber}: ФИО обязательно.");
-        }
-        if ($numericCells['bank_account']) {
-            throw new RuntimeException(
-                "Строка {$rowNumber}: расчётный счёт должен быть сохранён в Excel как текст, "
-                . 'иначе Excel может округлить 20-значный номер.'
-            );
+        [$cardNumber, $cardIssue] = ccRefundCardNumberValue($values['card_number']);
+        [$clientContactDate, $dateIssue] = ccRefundOptionalDateValue(
+            $values['client_contact_date'],
+            $numericCells['client_contact_date']
+        );
+        [$customerFullName, $fullNameIssue] = ccRefundOptionalFullNameValue($values['customer_full_name']);
+        [$bankBic, $bicIssue] = ccRefundOptionalDigitsValue(
+            $values['bank_bic'],
+            9,
+            'Неверный формат БИК (ожидается 9 цифр).'
+        );
+        [$bankAccount, $accountIssue] = ccRefundOptionalDigitsValue(
+            $values['bank_account'],
+            20,
+            'Неверный формат расчётного счёта (ожидается 20 цифр).'
+        );
+
+        $requestNumber = trim($values['request_number']);
+        $requestIssue = null;
+        if (mb_strlen($requestNumber, 'UTF-8') > 100) {
+            $requestNumber = '';
+            $requestIssue = 'Номер обращения превышает 100 символов.';
         }
 
+        $issues = array_values(array_filter([
+            $cardIssue,
+            $dateIssue,
+            $requestIssue,
+            $fullNameIssue,
+            $bicIssue,
+            $accountIssue,
+        ], static fn($issue): bool => is_string($issue) && $issue !== ''));
+
         $records[] = [
+            '_row_number' => $rowNumber,
+            '_issues' => $issues,
+            '_rejected' => $cardIssue !== null,
             'card_number' => $cardNumber,
-            'client_contact_date' => ccRefundDate($values['client_contact_date'], $rowNumber),
-            'request_number' => $values['request_number'],
-            'customer_full_name' => $values['customer_full_name'],
-            'bank_bic' => ccRefundDigits($values['bank_bic'], 9, 'БИК', $rowNumber),
-            'bank_account' => ccRefundDigits($values['bank_account'], 20, 'Расчётный счёт', $rowNumber),
+            'client_contact_date' => $clientContactDate,
+            'request_number' => $requestNumber,
+            'customer_full_name' => $customerFullName,
+            'bank_bic' => $bankBic,
+            'bank_account' => $bankAccount,
         ];
     }
 
@@ -407,9 +432,41 @@ function ccRefundQueue(PDO $pdo, array $records, int $submittedByUserId): array
     $created = 0;
     $updated = 0;
     $skipped = 0;
-    $pdo->beginTransaction();
+    $rejected = 0;
+    $warnings = 0;
+    $resultRows = [];
+    $acceptedRecords = [];
+
+    foreach ($records as $record) {
+        $rowNumber = (int)($record['_row_number'] ?? 0);
+        $issues = is_array($record['_issues'] ?? null) ? $record['_issues'] : [];
+        if (!empty($record['_rejected'])) {
+            $rejected++;
+            $resultRows[$rowNumber] = [
+                'row_number' => $rowNumber,
+                'card_number' => (string)($record['card_number'] ?? ''),
+                'result' => 'error',
+                'label' => 'Ошибка',
+                'details' => array_map(
+                    static fn(string $issue): string => "Строка {$rowNumber} — {$issue}",
+                    $issues
+                ),
+            ];
+            continue;
+        }
+        if ($issues) {
+            $warnings++;
+        }
+        $acceptedRecords[] = $record;
+    }
+
+    if ($acceptedRecords) {
+        $pdo->beginTransaction();
+    }
     try {
-        foreach ($records as $record) {
+        foreach ($acceptedRecords as $record) {
+            $rowNumber = (int)$record['_row_number'];
+            $issues = $record['_issues'];
             $sourceKey = ccRefundSourceKey(
                 (string)$record['request_number'],
                 (string)$record['card_number']
@@ -426,22 +483,37 @@ function ccRefundQueue(PDO $pdo, array $records, int $submittedByUserId): array
                     'submitted_by_user_id' => $submittedByUserId,
                 ]);
                 $created++;
-                continue;
-            }
-            if ((string)$existing['queue_status'] === 'pending'
+                $operation = 'Добавлено в CLZ.';
+            } elseif ((string)$existing['queue_status'] === 'pending'
                 && hash_equals((string)$existing['payload_hash'], $payloadHash)) {
                 $skipped++;
-                continue;
+                $operation = 'Без изменений.';
+            } else {
+                $update->execute([
+                    'payload_hash' => $payloadHash,
+                    'payload_encrypted' => ccRefundEncryptPayload($payloadJson),
+                    'submitted_by_user_id' => $submittedByUserId,
+                    'id' => (int)$existing['id'],
+                ]);
+                $updated++;
+                $operation = 'Обновлено в CLZ.';
             }
-            $update->execute([
-                'payload_hash' => $payloadHash,
-                'payload_encrypted' => ccRefundEncryptPayload($payloadJson),
-                'submitted_by_user_id' => $submittedByUserId,
-                'id' => (int)$existing['id'],
-            ]);
-            $updated++;
+
+            $details = ["Строка {$rowNumber} — {$operation}"];
+            foreach ($issues as $issue) {
+                $details[] = "Строка {$rowNumber} — {$issue}";
+            }
+            $resultRows[$rowNumber] = [
+                'row_number' => $rowNumber,
+                'card_number' => (string)$record['card_number'],
+                'result' => $issues ? 'warning' : 'success',
+                'label' => $issues ? 'Загружено с замечаниями' : 'Успех',
+                'details' => $details,
+            ];
         }
-        $pdo->commit();
+        if ($pdo->inTransaction()) {
+            $pdo->commit();
+        }
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
@@ -449,10 +521,15 @@ function ccRefundQueue(PDO $pdo, array $records, int $submittedByUserId): array
         throw $e;
     }
 
+    ksort($resultRows);
+
     return [
         'received' => count($records),
         'queued' => $created,
         'updated' => $updated,
         'skipped' => $skipped,
+        'rejected' => $rejected,
+        'warnings' => $warnings,
+        'rows' => array_values($resultRows),
     ];
 }

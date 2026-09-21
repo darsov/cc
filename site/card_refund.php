@@ -60,50 +60,45 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     <title>Возврат подарочных сертификатов · КЦ</title>
     <style>
         :root {
-            color-scheme: dark;
-            font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            color-scheme:light;
+            font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
         }
         * { box-sizing:border-box; }
-        body {
-            min-height:100vh;
-            margin:0;
-            padding:2rem 1rem;
-            color:#f8fafc;
-            background:
-                radial-gradient(circle at 20% 10%, rgba(37,99,235,.2), transparent 30rem),
-                linear-gradient(145deg,#09090b,#111827 60%,#09090b);
-        }
-        main { width:min(100%,56rem); margin:0 auto; }
+        body { min-height:100vh; margin:0; padding:2rem 1rem; color:#0f172a; background:#f8fafc; }
+        main { width:min(100%,72rem); margin:0 auto; }
         nav { margin-bottom:1rem; display:flex; justify-content:space-between; gap:1rem; align-items:center; }
-        nav a { color:#93c5fd; text-decoration:none; }
+        nav a { color:#2563eb; text-decoration:none; }
         nav form { display:inline; }
-        nav button { padding:0; background:none; color:#93c5fd; font-weight:400; }
+        nav button { padding:0; background:none; color:#2563eb; font-weight:400; }
         .panel {
             padding:2rem;
-            border:1px solid rgba(255,255,255,.1);
+            border:1px solid #e2e8f0;
             border-radius:1.25rem;
-            background:rgba(17,24,39,.82);
-            box-shadow:0 2rem 7rem rgba(0,0,0,.35);
+            background:#fff;
+            box-shadow:0 18px 45px rgba(15,23,42,.08);
         }
+        .results { margin-bottom:1rem; }
         h1 { margin:0 0 .65rem; font-size:clamp(1.8rem,5vw,2.7rem); letter-spacing:-.03em; }
-        .lead { margin:0 0 1.5rem; color:#cbd5e1; line-height:1.55; }
+        h2 { margin:0 0 1rem; font-size:1.25rem; }
         .columns {
             margin:1rem 0 1.5rem;
             padding:1rem 1.2rem;
+            border:1px solid #e2e8f0;
             border-radius:.8rem;
-            background:rgba(255,255,255,.04);
-            color:#cbd5e1;
-            line-height:1.7;
+            background:#f8fafc;
+            color:#475569;
+            line-height:1.8;
         }
-        code { color:#fde68a; }
-        form { display:grid; gap:1rem; }
+        .required { color:#b91c1c; font-weight:700; }
+        code { color:#1d4ed8; }
+        .upload-form { display:grid; gap:1rem; }
         input[type=file] {
             width:100%;
             padding:1rem;
-            border:1px dashed #64748b;
+            border:1px dashed #94a3b8;
             border-radius:.8rem;
-            background:#0f172a;
-            color:#e2e8f0;
+            background:#fff;
+            color:#334155;
         }
         button {
             justify-self:start;
@@ -117,19 +112,35 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         }
         button:hover { background:#1d4ed8; }
         .message { margin-bottom:1rem; padding:1rem 1.2rem; border-radius:.8rem; line-height:1.5; }
-        .error { background:rgba(220,38,38,.18); border:1px solid rgba(248,113,113,.35); color:#fecaca; }
-        .success { background:rgba(22,163,74,.18); border:1px solid rgba(74,222,128,.35); color:#bbf7d0; }
-        .stats { display:flex; flex-wrap:wrap; gap:.6rem; margin-top:.7rem; }
-        .stat { padding:.4rem .65rem; border-radius:999px; background:rgba(255,255,255,.08); font-size:.88rem; }
-        .note { margin-top:1.2rem; color:#94a3b8; font-size:.88rem; line-height:1.5; }
-        @media (max-width:640px) { .panel { padding:1.25rem; } }
+        .message.error { background:#fef2f2; border:1px solid #fecaca; color:#991b1b; }
+        .stats { display:flex; flex-wrap:wrap; gap:.6rem; margin-bottom:1rem; }
+        .stat { padding:.4rem .7rem; border-radius:999px; background:#f1f5f9; color:#475569; font-size:.88rem; }
+        .table-wrap { overflow:auto; border:1px solid #e2e8f0; border-radius:.8rem; }
+        table { width:100%; min-width:48rem; border-collapse:collapse; }
+        th,td { padding:.75rem .85rem; border-bottom:1px solid #e2e8f0; text-align:left; vertical-align:top; font-size:.9rem; }
+        th { background:#f8fafc; color:#475569; white-space:nowrap; }
+        tbody tr:last-child td { border-bottom:0; }
+        td code { color:#0f172a; white-space:nowrap; }
+        .status { display:inline-block; padding:.3rem .55rem; border-radius:999px; font-size:.8rem; font-weight:700; white-space:nowrap; }
+        .status.success { color:#166534; background:#dcfce7; }
+        .status.warning { color:#92400e; background:#fef3c7; }
+        .status.error { color:#991b1b; background:#fee2e2; }
+        .details { margin:0; padding-left:1.2rem; color:#475569; }
+        .details li + li { margin-top:.3rem; }
+        @media (max-width:640px) {
+            body { padding:1rem .7rem; }
+            .panel { padding:1.25rem; }
+        }
     </style>
 </head>
 <body>
 <main>
     <nav>
-        <a href="index.php">← Главная КЦ</a>
-        <form method="post" action="logout.php"><input type="hidden" name="csrf_token" value="<?= ccRefundEscape(ccCsrfToken()) ?>"><button type="submit">Выйти</button></form>
+        <a href="index.php">← Главная</a>
+        <form method="post" action="logout.php">
+            <input type="hidden" name="csrf_token" value="<?= ccRefundEscape(ccCsrfToken()) ?>">
+            <button type="submit">Выйти</button>
+        </form>
     </nav>
 
     <?php if ($error !== null): ?>
@@ -137,43 +148,72 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     <?php endif; ?>
 
     <?php if (is_array($result)): ?>
-        <div class="message success">
-            <strong>Файл принят в очередь.</strong>
+        <section class="panel results">
+            <h2>Результат загрузки</h2>
             <div class="stats">
-                <span class="stat">Получено: <?= (int)($result['received'] ?? 0) ?></span>
-                <span class="stat">Новых: <?= (int)($result['queued'] ?? 0) ?></span>
+                <span class="stat">Обработано: <?= (int)($result['received'] ?? 0) ?></span>
+                <span class="stat">Добавлено: <?= (int)($result['queued'] ?? 0) ?></span>
                 <span class="stat">Обновлено: <?= (int)($result['updated'] ?? 0) ?></span>
                 <span class="stat">Без изменений: <?= (int)($result['skipped'] ?? 0) ?></span>
+                <span class="stat">С замечаниями: <?= (int)($result['warnings'] ?? 0) ?></span>
+                <span class="stat">Отклонено: <?= (int)($result['rejected'] ?? 0) ?></span>
             </div>
-        </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                    <tr>
+                        <th>Строка XLSX</th>
+                        <th>Номер карты</th>
+                        <th>Результат</th>
+                        <th>Подробности</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <?php foreach (($result['rows'] ?? []) as $row): ?>
+                        <?php
+                        $resultClass = in_array(($row['result'] ?? ''), ['success', 'warning', 'error'], true)
+                            ? (string)$row['result']
+                            : 'error';
+                        $details = is_array($row['details'] ?? null) ? $row['details'] : [];
+                        ?>
+                        <tr>
+                            <td><?= (int)($row['row_number'] ?? 0) ?></td>
+                            <td><code><?= ccRefundEscape((string)($row['card_number'] ?? '')) ?: '—' ?></code></td>
+                            <td><span class="status <?= ccRefundEscape($resultClass) ?>"><?= ccRefundEscape((string)($row['label'] ?? '')) ?></span></td>
+                            <td>
+                                <ul class="details">
+                                    <?php foreach ($details as $detail): ?>
+                                        <li><?= ccRefundEscape((string)$detail) ?></li>
+                                    <?php endforeach; ?>
+                                </ul>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </section>
     <?php endif; ?>
 
     <section class="panel">
         <h1>Возврат подарочных сертификатов</h1>
-        <p class="lead">Загрузите обращения клиентов в XLSX. Они попадут в защищённую очередь и будут забраны внутренним сервером OMNI.</p>
 
         <div class="columns">
-            Первая строка должна содержать колонки:<br>
-            <code>Номер подарочной карты</code>,
+            Первая строка XLSX может содержать колонки:<br>
+            <code class="required">Номер подарочной карты</code> — обязательная,<br>
             <code>Дата обращения клиента</code>,
             <code>Номер обращения</code>,
             <code>ФИО</code>,
             <code>БИК</code>,
-            <code>Расчётный счёт</code>.
+            <code>Расчётный счёт</code> — необязательные.
         </div>
 
-        <form method="post" enctype="multipart/form-data">
+        <form class="upload-form" method="post" enctype="multipart/form-data">
             <input type="hidden" name="csrf_token" value="<?= ccRefundEscape(ccRefundCsrfToken()) ?>">
             <input type="hidden" name="MAX_FILE_SIZE" value="<?= CC_REFUND_MAX_FILE_BYTES ?>">
             <input type="file" name="refund_xlsx" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
-            <button type="submit">Добавить в очередь OMNI</button>
+            <button type="submit">Отправить в CLZ</button>
         </form>
-
-        <p class="note">
-            БИК и расчётный счёт должны быть сохранены в Excel как текст. Сам XLSX не сохраняется.
-            После подтверждённого импорта OMNI персональные и банковские данные очищаются из очереди КЦ.
-            Повторная загрузка того же обращения и той же карты не создаёт дубль.
-        </p>
     </section>
 </main>
 </body>

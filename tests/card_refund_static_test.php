@@ -46,6 +46,7 @@ $checks = [
     [str_contains($library, 'CC_REFUND_MAX_ROWS'), 'Row limit is missing.'],
     [str_contains($library, "(?:\\d{10}|\\d{20})"), 'Gift card length validation is missing.'],
     [str_contains($library, 'Загружено с замечаниями'), 'Partial row acceptance is missing.'],
+    [str_contains($library, "(int)(\$rowNode['r']"), 'Exact XLSX row numbers are missing.'],
     [str_contains($bridge, 'ccBridgeVerify'), 'Bridge authentication is missing.'],
     [str_contains($bridge, "hash_hmac("), 'HMAC verification is missing.'],
     [str_contains($bridge, 'ccBridgeSyncUsers'), 'User sync endpoint is missing.'],

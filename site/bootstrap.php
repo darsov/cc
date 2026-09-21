@@ -2,20 +2,29 @@
 
 declare(strict_types=1);
 
-const CC_APP_VERSION = '2026-09-21.03';
+const CC_APP_VERSION = '2026-09-21.04';
 
 function ccEnvironmentValue(string $name): ?string
 {
-    $value = getenv($name);
-    if ($value !== false && $value !== '') {
-        return (string)$value;
-    }
+    foreach ([$name, 'REDIRECT_' . $name] as $candidate) {
+        $value = getenv($candidate);
+        if ($value !== false && $value !== '') {
+            return (string)$value;
+        }
 
-    foreach ([$_SERVER, $_ENV] as $source) {
-        if (array_key_exists($name, $source) && is_scalar($source[$name])) {
-            $value = (string)$source[$name];
-            if ($value !== '') {
-                return $value;
+        if (function_exists('apache_getenv')) {
+            $value = apache_getenv($candidate, true);
+            if ($value !== false && $value !== '') {
+                return (string)$value;
+            }
+        }
+
+        foreach ([$_SERVER, $_ENV] as $source) {
+            if (array_key_exists($candidate, $source) && is_scalar($source[$candidate])) {
+                $value = (string)$source[$candidate];
+                if ($value !== '') {
+                    return $value;
+                }
             }
         }
     }

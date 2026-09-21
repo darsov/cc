@@ -2,7 +2,26 @@
 
 declare(strict_types=1);
 
-const CC_APP_VERSION = '2026-09-21.02';
+const CC_APP_VERSION = '2026-09-21.03';
+
+function ccEnvironmentValue(string $name): ?string
+{
+    $value = getenv($name);
+    if ($value !== false && $value !== '') {
+        return (string)$value;
+    }
+
+    foreach ([$_SERVER, $_ENV] as $source) {
+        if (array_key_exists($name, $source) && is_scalar($source[$name])) {
+            $value = (string)$source[$name];
+            if ($value !== '') {
+                return $value;
+            }
+        }
+    }
+
+    return null;
+}
 
 function ccDbConfig(): array
 {
@@ -15,8 +34,8 @@ function ccDbConfig(): array
         }
     }
     $value = static function (string $envName, string $key, $default) use ($config) {
-        $env = getenv($envName);
-        return $env !== false && $env !== '' ? $env : ($config[$key] ?? $default);
+        $env = ccEnvironmentValue($envName);
+        return $env !== null ? $env : ($config[$key] ?? $default);
     };
     $result = [
         'host' => (string)$value('CC_DB_HOST', 'host', '127.0.0.1'),
@@ -226,9 +245,9 @@ function ccBridgeConfig(): array
             $config = $loaded;
         }
     }
-    $secret = trim((string)(getenv('CC_OMNI_BRIDGE_SECRET') ?: ($config['secret'] ?? '')));
+    $secret = trim((string)(ccEnvironmentValue('CC_OMNI_BRIDGE_SECRET') ?? ($config['secret'] ?? '')));
     $queueEncryptionKey = trim((string)(
-        getenv('CC_REFUND_QUEUE_ENCRYPTION_KEY') ?: ($config['queue_encryption_key'] ?? '')
+        ccEnvironmentValue('CC_REFUND_QUEUE_ENCRYPTION_KEY') ?? ($config['queue_encryption_key'] ?? '')
     ));
     if (strlen($secret) < 32) {
         throw new RuntimeException('Общий секрет OMNI → КЦ не настроен.');

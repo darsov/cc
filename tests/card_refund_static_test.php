@@ -22,6 +22,8 @@ foreach ($required as $file) {
 }
 
 $page = file_get_contents($root . '/site/card_refund.php');
+$index = file_get_contents($root . '/site/index.php');
+$login = file_get_contents($root . '/site/login.php');
 $library = file_get_contents($root . '/site/card_refund_lib.php');
 $bridge = file_get_contents($root . '/site/bridge_api.php');
 $bootstrap = file_get_contents($root . '/site/bootstrap.php');
@@ -30,10 +32,20 @@ $migration = file_get_contents($root . '/database/migrate_cc_portal.sql');
 $checks = [
     [str_contains($page, 'enctype="multipart/form-data"'), 'Upload form is missing.'],
     [str_contains($page, 'ccRequireAuth()'), 'Refund authentication is missing.'],
+    [str_contains($page, 'Отправить в CLZ'), 'CLZ upload button label is missing.'],
+    [str_contains($page, 'Результат загрузки'), 'Per-row result table is missing.'],
+    [!str_contains($page, 'Они попадут в защищённую очередь'), 'Internal queue text is still visible.'],
+    [!str_contains($page, 'Сам XLSX не сохраняется'), 'Technical XLSX note is still visible.'],
+    [str_contains($index, '💳 Возврат подарочного сертификата'), 'Main CC action is missing.'],
+    [!str_contains($index, 'КЦ запущен'), 'Legacy CC splash is still visible.'],
+    [str_contains($index, 'color-scheme: light'), 'Main page is not light.'],
+    [str_contains($login, 'color-scheme:light'), 'Login page is not light.'],
     [str_contains($library, 'ZipArchive'), 'XLSX reader is missing.'],
     [str_contains($library, 'ccRefundQueue'), 'Local refund queue is missing.'],
     [str_contains($library, "'aes-256-gcm'"), 'Refund queue encryption is missing.'],
     [str_contains($library, 'CC_REFUND_MAX_ROWS'), 'Row limit is missing.'],
+    [str_contains($library, "(?:\\d{10}|\\d{20})"), 'Gift card length validation is missing.'],
+    [str_contains($library, 'Загружено с замечаниями'), 'Partial row acceptance is missing.'],
     [str_contains($bridge, 'ccBridgeVerify'), 'Bridge authentication is missing.'],
     [str_contains($bridge, "hash_hmac("), 'HMAC verification is missing.'],
     [str_contains($bridge, 'ccBridgeSyncUsers'), 'User sync endpoint is missing.'],
@@ -52,6 +64,40 @@ foreach ($checks as [$passed, $message]) {
     if (!$passed) {
         throw new RuntimeException($message);
     }
+}
+
+require_once $root . '/site/card_refund_lib.php';
+
+foreach (['1234567890', '12345678901234567890'] as $cardNumber) {
+    [$normalizedCard, $cardIssue] = ccRefundCardNumberValue($cardNumber);
+    if ($normalizedCard !== $cardNumber || $cardIssue !== null) {
+        throw new RuntimeException('A valid gift card number was rejected.');
+    }
+}
+
+[, $invalidCardIssue] = ccRefundCardNumberValue('12345678901');
+if ($invalidCardIssue === null) {
+    throw new RuntimeException('An invalid gift card length was accepted.');
+}
+
+[$dateValue, $dateIssue] = ccRefundOptionalDateValue('30.08.2026', false);
+if ($dateValue !== '2026-08-30' || $dateIssue !== null) {
+    throw new RuntimeException('The required contact date format was rejected.');
+}
+
+[, $wrongDateIssue] = ccRefundOptionalDateValue('2026-08-30', false);
+if ($wrongDateIssue === null) {
+    throw new RuntimeException('A wrong contact date format was accepted.');
+}
+
+[$validName, $validNameIssue] = ccRefundOptionalFullNameValue('Иванов Иван Иванович');
+if ($validName === '' || $validNameIssue !== null) {
+    throw new RuntimeException('A Cyrillic full name was rejected.');
+}
+
+[$invalidName, $invalidNameIssue] = ccRefundOptionalFullNameValue('John Smith');
+if ($invalidName !== '' || $invalidNameIssue === null) {
+    throw new RuntimeException('A non-Cyrillic full name was accepted.');
 }
 
 echo "OK\n";

@@ -41,17 +41,19 @@ ccApplyHtmlHeaders();
     <meta name="robots" content="noindex, nofollow">
     <title>Вход · Контакт-центр</title>
     <style>
-        :root { color-scheme:dark; font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
+        :root { color-scheme:light; font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
         * { box-sizing:border-box; }
-        body { min-height:100vh; margin:0; padding:1rem; display:grid; place-items:center; color:#f8fafc; background:radial-gradient(circle at 50% 20%,rgba(37,99,235,.22),transparent 30rem),linear-gradient(145deg,#09090b,#111827 60%,#09090b); }
-        main { width:min(92vw,28rem); padding:2rem; border:1px solid rgba(255,255,255,.1); border-radius:1.25rem; background:rgba(17,24,39,.86); box-shadow:0 2rem 7rem rgba(0,0,0,.4); }
+        body { min-height:100vh; margin:0; padding:1rem; display:grid; place-items:center; color:#0f172a; background:#f8fafc; }
+        main { width:min(92vw,28rem); padding:2rem; border:1px solid #e2e8f0; border-radius:1.25rem; background:#fff; box-shadow:0 20px 50px rgba(15,23,42,.09); }
         h1 { margin:0 0 .5rem; }
-        p { color:#94a3b8; line-height:1.5; }
+        p { color:#64748b; line-height:1.5; }
         form { display:grid; gap:1rem; margin-top:1.5rem; }
-        label { display:grid; gap:.4rem; color:#cbd5e1; font-size:.9rem; }
-        input { width:100%; padding:.8rem .9rem; border:1px solid #475569; border-radius:.7rem; color:#f8fafc; background:#0f172a; font:inherit; }
+        label { display:grid; gap:.4rem; color:#334155; font-size:.9rem; }
+        input { width:100%; padding:.8rem .9rem; border:1px solid #cbd5e1; border-radius:.7rem; color:#0f172a; background:#fff; font:inherit; }
+        input:focus { outline:3px solid #dbeafe; border-color:#2563eb; }
         button { padding:.85rem 1rem; border:0; border-radius:.7rem; color:#fff; background:#2563eb; font-weight:700; cursor:pointer; }
-        .error { padding:.8rem 1rem; border:1px solid rgba(248,113,113,.4); border-radius:.7rem; color:#fecaca; background:rgba(220,38,38,.18); }
+        button:hover { background:#1d4ed8; }
+        .error { padding:.8rem 1rem; border:1px solid #fecaca; border-radius:.7rem; color:#991b1b; background:#fef2f2; }
     </style>
 </head>
 <body>

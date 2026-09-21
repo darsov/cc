@@ -1,0 +1,11 @@
+<?php
+
+declare(strict_types=1);
+
+// Production path: /etc/omniweb/bridge.php
+// Generate two different values with: openssl rand -hex 32
+return [
+    'secret' => 'CHANGE_TO_THE_SHARED_SECRET',
+    // Local-only key. Never enter this one into OMNI and do not rotate while the queue is non-empty.
+    'queue_encryption_key' => 'CHANGE_TO_A_DIFFERENT_LOCAL_ENCRYPTION_KEY',
+];

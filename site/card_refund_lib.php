@@ -6,29 +6,6 @@ const CC_REFUND_MAX_FILE_BYTES = 10 * 1024 * 1024;
 const CC_REFUND_MAX_UNPACKED_BYTES = 50 * 1024 * 1024;
 const CC_REFUND_MAX_ROWS = 5000;
 
-function ccRefundConfig(): array
-{
-    $config = [];
-    $configPath = '/etc/omniweb/card_refund.php';
-    if (is_file($configPath)) {
-        $loaded = require $configPath;
-        if (is_array($loaded)) {
-            $config = $loaded;
-        }
-    }
-
-    $apiUrl = trim((string)(getenv('OMNI_CARD_REFUND_API_URL') ?: ($config['api_url'] ?? '')));
-    $secret = trim((string)(getenv('OMNI_CARD_REFUND_API_SECRET') ?: ($config['secret'] ?? '')));
-    if ($apiUrl === '' || !filter_var($apiUrl, FILTER_VALIDATE_URL) || !str_starts_with($apiUrl, 'https://')) {
-        throw new RuntimeException('Не настроен HTTPS-адрес API возвратов OMNI.');
-    }
-    if (strlen($secret) < 32) {
-        throw new RuntimeException('Не настроен общий секрет API возвратов OMNI.');
-    }
-
-    return ['api_url' => $apiUrl, 'secret' => $secret];
-}
-
 function ccRefundCsrfToken(): string
 {
     if (!isset($_SESSION['card_refund_csrf']) || !is_string($_SESSION['card_refund_csrf'])) {
@@ -327,59 +304,155 @@ function ccRefundReadXlsx(string $path, int $fileSize): array
     return $records;
 }
 
-function ccRefundSendToOmni(array $records): array
+function ccRefundSourceKey(string $requestNumber, string $cardNumber): string
 {
-    if (!function_exists('curl_init')) {
-        throw new RuntimeException('На сервере не подключено расширение PHP cURL.');
-    }
-    $config = ccRefundConfig();
-    $body = json_encode(
-        ['source' => 'cc.clz.ru', 'records' => $records],
-        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+    return hash(
+        'sha256',
+        mb_strtolower(trim($requestNumber), 'UTF-8') . "\n" . preg_replace('/[\s\p{Z}]+/u', '', trim($cardNumber))
     );
-    $timestamp = (string)time();
-    $signature = hash_hmac('sha256', $timestamp . "\n" . $body, $config['secret']);
+}
 
-    $curl = curl_init($config['api_url']);
-    if ($curl === false) {
-        throw new RuntimeException('Не удалось инициализировать соединение с OMNI.');
-    }
-    curl_setopt_array($curl, [
-        CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => $body,
-        CURLOPT_HTTPHEADER => [
-            'Content-Type: application/json',
-            'Accept: application/json',
-            'X-Omni-Timestamp: ' . $timestamp,
-            'X-Omni-Signature: sha256=' . $signature,
-        ],
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_CONNECTTIMEOUT => 10,
-        CURLOPT_TIMEOUT => 60,
-        CURLOPT_FOLLOWLOCATION => false,
-        CURLOPT_MAXREDIRS => 0,
-        CURLOPT_SSL_VERIFYPEER => true,
-        CURLOPT_SSL_VERIFYHOST => 2,
-    ]);
-    $response = curl_exec($curl);
-    $curlError = curl_error($curl);
-    $status = (int)curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
-    curl_close($curl);
+function ccRefundPayloadJson(array $record): string
+{
+    return json_encode([
+        'card_number' => (string)$record['card_number'],
+        'client_contact_date' => (string)$record['client_contact_date'],
+        'request_number' => (string)$record['request_number'],
+        'customer_full_name' => (string)$record['customer_full_name'],
+        'bank_bic' => (string)$record['bank_bic'],
+        'bank_account' => (string)$record['bank_account'],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+}
 
-    if (!is_string($response)) {
-        throw new RuntimeException('OMNI недоступен: ' . ($curlError !== '' ? $curlError : 'ошибка соединения.'));
+function ccRefundEncryptionKey(): string
+{
+    return hash('sha256', 'cc-refund-queue-v1|' . ccQueueEncryptionSecret(), true);
+}
+
+function ccRefundEncryptPayload(string $plainText): string
+{
+    if (!function_exists('openssl_encrypt')) {
+        throw new RuntimeException('На сервере КЦ не подключено расширение OpenSSL.');
     }
+    $iv = random_bytes(12);
+    $tag = '';
+    $encrypted = openssl_encrypt(
+        $plainText,
+        'aes-256-gcm',
+        ccRefundEncryptionKey(),
+        OPENSSL_RAW_DATA,
+        $iv,
+        $tag
+    );
+    if ($encrypted === false) {
+        throw new RuntimeException('Не удалось зашифровать обращение перед сохранением в очередь.');
+    }
+    return 'v1:' . base64_encode($iv . $tag . $encrypted);
+}
+
+function ccRefundDecryptPayload(string $encryptedValue): array
+{
+    if (!str_starts_with($encryptedValue, 'v1:')) {
+        throw new RuntimeException('Неизвестный формат зашифрованного обращения КЦ.');
+    }
+    $payload = base64_decode(substr($encryptedValue, 3), true);
+    if ($payload === false || strlen($payload) < 29) {
+        throw new RuntimeException('Зашифрованное обращение КЦ повреждено.');
+    }
+    $plainText = openssl_decrypt(
+        substr($payload, 28),
+        'aes-256-gcm',
+        ccRefundEncryptionKey(),
+        OPENSSL_RAW_DATA,
+        substr($payload, 0, 12),
+        substr($payload, 12, 16)
+    );
+    if (!is_string($plainText)) {
+        throw new RuntimeException('Не удалось расшифровать обращение КЦ. Проверьте общий секрет.');
+    }
+    $record = json_decode($plainText, true, 32, JSON_THROW_ON_ERROR);
+    if (!is_array($record)) {
+        throw new RuntimeException('Расшифрованное обращение КЦ имеет неверный формат.');
+    }
+    return $record;
+}
+
+function ccRefundQueue(PDO $pdo, array $records, int $submittedByUserId): array
+{
+    ccEnsureSchema($pdo);
+    $select = $pdo->prepare(
+        'SELECT `id`, `payload_hash`, `queue_status`
+         FROM `cc_card_refund_queue`
+         WHERE `source_key` = :source_key
+         LIMIT 1
+         FOR UPDATE'
+    );
+    $insert = $pdo->prepare(
+        'INSERT INTO `cc_card_refund_queue`
+            (`source_key`, `payload_hash`, `payload_encrypted`, `queue_status`, `submitted_by_user_id`, `submitted_at`)
+         VALUES
+            (:source_key, :payload_hash, :payload_encrypted, \'pending\', :submitted_by_user_id, NOW())'
+    );
+    $update = $pdo->prepare(
+        'UPDATE `cc_card_refund_queue`
+         SET `payload_hash` = :payload_hash,
+             `payload_encrypted` = :payload_encrypted,
+             `queue_status` = \'pending\',
+             `submitted_by_user_id` = :submitted_by_user_id,
+             `submitted_at` = NOW(),
+             `exported_at` = NULL
+         WHERE `id` = :id'
+    );
+
+    $created = 0;
+    $updated = 0;
+    $skipped = 0;
+    $pdo->beginTransaction();
     try {
-        $payload = json_decode($response, true, 32, JSON_THROW_ON_ERROR);
-    } catch (JsonException $e) {
-        throw new RuntimeException("OMNI вернул HTTP {$status} с некорректным ответом.");
+        foreach ($records as $record) {
+            $sourceKey = ccRefundSourceKey(
+                (string)$record['request_number'],
+                (string)$record['card_number']
+            );
+            $payloadJson = ccRefundPayloadJson($record);
+            $payloadHash = hash('sha256', $payloadJson);
+            $select->execute(['source_key' => $sourceKey]);
+            $existing = $select->fetch();
+            if (!$existing) {
+                $insert->execute([
+                    'source_key' => $sourceKey,
+                    'payload_hash' => $payloadHash,
+                    'payload_encrypted' => ccRefundEncryptPayload($payloadJson),
+                    'submitted_by_user_id' => $submittedByUserId,
+                ]);
+                $created++;
+                continue;
+            }
+            if ((string)$existing['queue_status'] === 'pending'
+                && hash_equals((string)$existing['payload_hash'], $payloadHash)) {
+                $skipped++;
+                continue;
+            }
+            $update->execute([
+                'payload_hash' => $payloadHash,
+                'payload_encrypted' => ccRefundEncryptPayload($payloadJson),
+                'submitted_by_user_id' => $submittedByUserId,
+                'id' => (int)$existing['id'],
+            ]);
+            $updated++;
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $e;
     }
-    if ($status < 200 || $status >= 300 || !is_array($payload) || empty($payload['ok'])) {
-        $message = is_array($payload) ? trim((string)($payload['error'] ?? '')) : '';
-        throw new RuntimeException(
-            "OMNI отклонил пакет (HTTP {$status})"
-            . ($message !== '' ? ': ' . $message : '.')
-        );
-    }
-    return $payload;
+
+    return [
+        'received' => count($records),
+        'queued' => $created,
+        'updated' => $updated,
+        'skipped' => $skipped,
+    ];
 }

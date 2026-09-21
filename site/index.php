@@ -1,22 +1,13 @@
 <?php
 declare(strict_types=1);
 
-header('Content-Type: text/html; charset=UTF-8');
-header('X-Content-Type-Options: nosniff');
-header('X-Frame-Options: DENY');
-header('Referrer-Policy: no-referrer');
-header("Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+require_once __DIR__ . '/bootstrap.php';
 
-$forwardedProto = strtolower(trim(explode(',', (string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''))[0]));
-$isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-    || $forwardedProto === 'https';
+$currentUser = ccRequireAuth();
+ccApplyHtmlHeaders();
+$isHttps = ccIsHttps();
 $phpVersion = PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION;
 $serverTime = (new DateTimeImmutable())->format('d.m.Y H:i:s T');
-
-function escape(string $value): string
-{
-    return htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-}
 ?>
 <!doctype html>
 <html lang="ru">
@@ -95,6 +86,10 @@ function escape(string $value): string
             background: #1d4ed8;
         }
 
+        .user { margin-top:1rem; color:#94a3b8; font-size:.9rem; }
+        .logout { margin-top:1rem; }
+        .logout button { border:0; background:none; color:#93c5fd; cursor:pointer; font:inherit; }
+
         .status {
             margin: 2rem auto 0;
             padding-top: 1.25rem;
@@ -157,13 +152,15 @@ function escape(string $value): string
     <main>
         <div class="fire" aria-label="Огонь">🔥</div>
         <h1>КЦ запущен</h1>
-        <p class="lead">Веб-интерфейс OMNI готов к разработке.</p>
+        <p class="lead">Внешний кабинет Контакт-центра OMNI.</p>
+        <div class="user"><?= ccEscape((string)$currentUser['email']) ?> · <?= ccEscape((string)$currentUser['department_name']) ?></div>
         <a class="action" href="card_refund.php">↩ Возврат подарочного сертификата</a>
+        <form class="logout" method="post" action="logout.php"><input type="hidden" name="csrf_token" value="<?= ccEscape(ccCsrfToken()) ?>"><button type="submit">Выйти</button></form>
 
         <div class="status" aria-label="Состояние сервера">
-            <span class="badge"><span class="ok">●</span> PHP <?= escape($phpVersion) ?></span>
+            <span class="badge"><span class="ok">●</span> PHP <?= ccEscape($phpVersion) ?></span>
             <span class="badge"><span class="ok">●</span> <?= $isHttps ? 'HTTPS' : 'HTTP' ?></span>
-            <span class="badge"><?= escape($serverTime) ?></span>
+            <span class="badge"><?= ccEscape($serverTime) ?></span>
         </div>
     </main>
 </body>

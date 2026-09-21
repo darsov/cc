@@ -2,29 +2,11 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/card_refund_lib.php';
 
-$forwardedProto = strtolower(trim(explode(',', (string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''))[0]));
-$isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || $forwardedProto === 'https';
-
-if (session_status() !== PHP_SESSION_ACTIVE) {
-    ini_set('session.use_strict_mode', '1');
-    session_set_cookie_params([
-        'lifetime' => 0,
-        'httponly' => true,
-        'secure' => $isHttps,
-        'samesite' => 'Strict',
-        'path' => '/',
-    ]);
-    session_start();
-}
-
-header('Content-Type: text/html; charset=UTF-8');
-header('X-Content-Type-Options: nosniff');
-header('X-Frame-Options: DENY');
-header('Referrer-Policy: no-referrer');
-header('Cache-Control: no-store');
-header("Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+$currentUser = ccRequireAuth();
+ccApplyHtmlHeaders();
 
 function ccRefundEscape(string $value): string
 {
@@ -63,7 +45,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         }
 
         $records = ccRefundReadXlsx($tmpName, (int)($file['size'] ?? 0));
-        $result = ccRefundSendToOmni($records);
+        $result = ccRefundQueue(ccDb(), $records, (int)$currentUser['id']);
     } catch (Throwable $e) {
         $error = $e->getMessage();
     }
@@ -92,8 +74,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                 linear-gradient(145deg,#09090b,#111827 60%,#09090b);
         }
         main { width:min(100%,56rem); margin:0 auto; }
-        nav { margin-bottom:1rem; }
+        nav { margin-bottom:1rem; display:flex; justify-content:space-between; gap:1rem; align-items:center; }
         nav a { color:#93c5fd; text-decoration:none; }
+        nav form { display:inline; }
+        nav button { padding:0; background:none; color:#93c5fd; font-weight:400; }
         .panel {
             padding:2rem;
             border:1px solid rgba(255,255,255,.1);
@@ -143,7 +127,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
 </head>
 <body>
 <main>
-    <nav><a href="index.php">← Главная КЦ</a></nav>
+    <nav>
+        <a href="index.php">← Главная КЦ</a>
+        <form method="post" action="logout.php"><input type="hidden" name="csrf_token" value="<?= ccRefundEscape(ccCsrfToken()) ?>"><button type="submit">Выйти</button></form>
+    </nav>
 
     <?php if ($error !== null): ?>
         <div class="message error"><?= ccRefundEscape($error) ?></div>
@@ -151,10 +138,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
 
     <?php if (is_array($result)): ?>
         <div class="message success">
-            <strong>Файл передан в OMNI.</strong>
+            <strong>Файл принят в очередь.</strong>
             <div class="stats">
                 <span class="stat">Получено: <?= (int)($result['received'] ?? 0) ?></span>
-                <span class="stat">Создано: <?= (int)($result['created'] ?? 0) ?></span>
+                <span class="stat">Новых: <?= (int)($result['queued'] ?? 0) ?></span>
                 <span class="stat">Обновлено: <?= (int)($result['updated'] ?? 0) ?></span>
                 <span class="stat">Без изменений: <?= (int)($result['skipped'] ?? 0) ?></span>
             </div>
@@ -163,7 +150,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
 
     <section class="panel">
         <h1>Возврат подарочных сертификатов</h1>
-        <p class="lead">Загрузите обращения клиентов в XLSX. Файл проверяется и сразу передаётся в раздел «Возвраты → Подарочные сертификаты» системы OMNI.</p>
+        <p class="lead">Загрузите обращения клиентов в XLSX. Они попадут в защищённую очередь и будут забраны внутренним сервером OMNI.</p>
 
         <div class="columns">
             Первая строка должна содержать колонки:<br>
@@ -179,11 +166,12 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             <input type="hidden" name="csrf_token" value="<?= ccRefundEscape(ccRefundCsrfToken()) ?>">
             <input type="hidden" name="MAX_FILE_SIZE" value="<?= CC_REFUND_MAX_FILE_BYTES ?>">
             <input type="file" name="refund_xlsx" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
-            <button type="submit">Загрузить в OMNI</button>
+            <button type="submit">Добавить в очередь OMNI</button>
         </form>
 
         <p class="note">
-            БИК и расчётный счёт должны быть сохранены в Excel как текст. Файл после обработки на сервере КЦ не сохраняется.
+            БИК и расчётный счёт должны быть сохранены в Excel как текст. Сам XLSX не сохраняется.
+            После подтверждённого импорта OMNI персональные и банковские данные очищаются из очереди КЦ.
             Повторная загрузка того же обращения и той же карты не создаёт дубль.
         </p>
     </section>

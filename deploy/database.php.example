@@ -1,0 +1,12 @@
+<?php
+
+declare(strict_types=1);
+
+// Production path: /etc/omniweb/database.php
+return [
+    'host' => '127.0.0.1',
+    'port' => 3306,
+    'dbname' => 'omniweb',
+    'user' => 'omniweb',
+    'pass' => 'CHANGE_ME',
+];

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-const CC_APP_VERSION = '2026-09-21.04';
+const CC_APP_VERSION = '2026-09-21.05';
 
 function ccEnvironmentValue(string $name): ?string
 {
@@ -32,16 +32,28 @@ function ccEnvironmentValue(string $name): ?string
     return null;
 }
 
-function ccDbConfig(): array
+function ccLoadLocalConfig(array $paths): array
 {
-    $config = [];
-    $path = '/etc/omniweb/database.php';
-    if (is_file($path)) {
+    foreach ($paths as $path) {
+        if (!is_string($path) || !is_file($path) || !is_readable($path)) {
+            continue;
+        }
+
         $loaded = require $path;
         if (is_array($loaded)) {
-            $config = $loaded;
+            return $loaded;
         }
     }
+
+    return [];
+}
+
+function ccDbConfig(): array
+{
+    $config = ccLoadLocalConfig([
+        '/etc/omniweb/database.php',
+        __DIR__ . '/.database.php',
+    ]);
     $value = static function (string $envName, string $key, $default) use ($config) {
         $env = ccEnvironmentValue($envName);
         return $env !== null ? $env : ($config[$key] ?? $default);
@@ -54,7 +66,7 @@ function ccDbConfig(): array
         'pass' => (string)$value('CC_DB_PASS', 'pass', ''),
     ];
     if ($result['host'] === '' || $result['dbname'] === '' || $result['user'] === '') {
-        throw new RuntimeException('База КЦ не настроена в /etc/omniweb/database.php.');
+        throw new RuntimeException('База КЦ не настроена.');
     }
     if ($result['port'] < 1 || $result['port'] > 65535) {
         throw new RuntimeException('В конфигурации КЦ указан некорректный порт БД.');
@@ -246,14 +258,10 @@ function ccBridgeConfig(): array
     if (is_array($result)) {
         return $result;
     }
-    $config = [];
-    $path = '/etc/omniweb/bridge.php';
-    if (is_file($path)) {
-        $loaded = require $path;
-        if (is_array($loaded)) {
-            $config = $loaded;
-        }
-    }
+    $config = ccLoadLocalConfig([
+        '/etc/omniweb/bridge.php',
+        __DIR__ . '/.bridge.php',
+    ]);
     $secret = trim((string)(ccEnvironmentValue('CC_OMNI_BRIDGE_SECRET') ?? ($config['secret'] ?? '')));
     $queueEncryptionKey = trim((string)(
         ccEnvironmentValue('CC_REFUND_QUEUE_ENCRYPTION_KEY') ?? ($config['queue_encryption_key'] ?? '')

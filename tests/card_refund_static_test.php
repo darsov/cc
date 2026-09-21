@@ -42,6 +42,8 @@ $checks = [
     [str_contains($bootstrap, '$_SERVER'), 'Apache SetEnv fallback is missing.'],
     [str_contains($bootstrap, "'REDIRECT_'"), 'Redirected SetEnv fallback is missing.'],
     [str_contains($bootstrap, 'apache_getenv'), 'Apache environment fallback is missing.'],
+    [str_contains($bootstrap, "__DIR__ . '/.bridge.php'"), 'Local bridge config fallback is missing.'],
+    [str_contains($bootstrap, "__DIR__ . '/.database.php'"), 'Local database config fallback is missing.'],
     [str_contains($migration, 'cc_users'), 'CC users table migration is missing.'],
     [str_contains($migration, 'cc_card_refund_queue'), 'CC refund queue migration is missing.'],
 ];

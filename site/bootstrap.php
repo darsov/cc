@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-const CC_APP_VERSION = '2026-09-21.06';
+const CC_APP_VERSION = '2026-09-21.07';
 
 function ccEnvironmentValue(string $name): ?string
 {
@@ -149,7 +149,7 @@ function ccApplyHtmlHeaders(): void
     header('X-Frame-Options: DENY');
     header('Referrer-Policy: no-referrer');
     header('Cache-Control: no-store');
-    header("Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+    header("Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
 }
 
 function ccEscape(string $value): string

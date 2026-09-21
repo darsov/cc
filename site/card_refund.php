@@ -58,6 +58,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex, nofollow">
     <title>Возврат подарочных сертификатов · КЦ</title>
+    <script src="card_refund.js" defer></script>
     <style>
         :root {
             color-scheme:light;
@@ -66,8 +67,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         * { box-sizing:border-box; }
         body { min-height:100vh; margin:0; padding:2rem 1rem; color:#0f172a; background:#f8fafc; }
         main { width:min(100%,72rem); margin:0 auto; }
-        nav { margin-bottom:1rem; display:flex; justify-content:space-between; gap:1rem; align-items:center; }
-        nav a { color:#2563eb; text-decoration:none; }
+        nav { margin-bottom:1rem; display:flex; justify-content:flex-end; gap:1rem; align-items:center; }
         nav form { display:inline; }
         nav button { padding:0; background:none; color:#2563eb; font-weight:400; }
         .panel {
@@ -89,7 +89,6 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             color:#475569;
             line-height:1.8;
         }
-        .required { color:#b91c1c; font-weight:700; }
         code { color:#1d4ed8; }
         .upload-form { display:grid; gap:1rem; }
         input[type=file] {
@@ -111,6 +110,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             font-weight:700;
         }
         button:hover { background:#1d4ed8; }
+        button:disabled { background:#94a3b8; cursor:not-allowed; opacity:.72; }
         .message { margin-bottom:1rem; padding:1rem 1.2rem; border-radius:.8rem; line-height:1.5; }
         .message.error { background:#fef2f2; border:1px solid #fecaca; color:#991b1b; }
         .stats { display:flex; flex-wrap:wrap; gap:.6rem; margin-bottom:1rem; }
@@ -136,7 +136,6 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
 <body>
 <main>
     <nav>
-        <a href="index.php">← Главная</a>
         <form method="post" action="logout.php">
             <input type="hidden" name="csrf_token" value="<?= ccRefundEscape(ccCsrfToken()) ?>">
             <button type="submit">Выйти</button>
@@ -154,7 +153,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                 <span class="stat">Обработано: <?= (int)($result['received'] ?? 0) ?></span>
                 <span class="stat">Добавлено: <?= (int)($result['queued'] ?? 0) ?></span>
                 <span class="stat">Обновлено: <?= (int)($result['updated'] ?? 0) ?></span>
-                <span class="stat">Без изменений: <?= (int)($result['skipped'] ?? 0) ?></span>
+                <span class="stat">Уже загружено: <?= (int)($result['skipped'] ?? 0) ?></span>
                 <span class="stat">С замечаниями: <?= (int)($result['warnings'] ?? 0) ?></span>
                 <span class="stat">Отклонено: <?= (int)($result['rejected'] ?? 0) ?></span>
             </div>
@@ -199,20 +198,20 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         <h1>Возврат подарочных сертификатов</h1>
 
         <div class="columns">
-            Первая строка XLSX может содержать колонки:<br>
-            <code class="required">Номер подарочной карты</code> — обязательная,<br>
+            Порядок колонок:<br>
+            <code>Номер подарочной карты</code>,
             <code>Дата обращения клиента</code>,
             <code>Номер обращения</code>,
             <code>ФИО</code>,
             <code>БИК</code>,
-            <code>Расчётный счёт</code> — необязательные.
+            <code>Расчётный счёт</code>.
         </div>
 
         <form class="upload-form" method="post" enctype="multipart/form-data">
             <input type="hidden" name="csrf_token" value="<?= ccRefundEscape(ccRefundCsrfToken()) ?>">
             <input type="hidden" name="MAX_FILE_SIZE" value="<?= CC_REFUND_MAX_FILE_BYTES ?>">
-            <input type="file" name="refund_xlsx" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
-            <button type="submit">Отправить в CLZ</button>
+            <input id="refund-xlsx" type="file" name="refund_xlsx" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+            <button id="refund-submit" type="submit" disabled>Отправить в CLZ</button>
         </form>
     </section>
 </main>

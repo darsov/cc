@@ -80,6 +80,21 @@ function escape(string $value): string
             font-size: 1.05rem;
         }
 
+        .action {
+            display: inline-block;
+            margin-top: 1.5rem;
+            padding: .8rem 1.1rem;
+            border-radius: .75rem;
+            color: #fff;
+            background: #2563eb;
+            text-decoration: none;
+            font-weight: 700;
+        }
+
+        .action:hover {
+            background: #1d4ed8;
+        }
+
         .status {
             margin: 2rem auto 0;
             padding-top: 1.25rem;
@@ -143,6 +158,7 @@ function escape(string $value): string
         <div class="fire" aria-label="Огонь">🔥</div>
         <h1>КЦ запущен</h1>
         <p class="lead">Веб-интерфейс OMNI готов к разработке.</p>
+        <a class="action" href="card_refund.php">↩ Возврат подарочного сертификата</a>
 
         <div class="status" aria-label="Состояние сервера">
             <span class="badge"><span class="ok">●</span> PHP <?= escape($phpVersion) ?></span>

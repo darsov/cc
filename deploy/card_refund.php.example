@@ -1,0 +1,10 @@
+<?php
+
+declare(strict_types=1);
+
+// Production path: /etc/omniweb/card_refund.php
+// Use the same secret as /etc/omni/card_refund_api.php on omni.clz.ru.
+return [
+    'api_url' => 'https://omni.clz.ru/card_refund_ingest.php',
+    'secret' => 'CHANGE_TO_THE_SHARED_SECRET',
+];

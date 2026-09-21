@@ -6,7 +6,7 @@ require_once __DIR__ . '/bootstrap.php';
 
 ccStartSession();
 if (ccCurrentUser() !== null) {
-    header('Location: index.php');
+    header('Location: card_refund.php');
     exit;
 }
 
@@ -24,7 +24,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         if (!ccAttemptLogin($email, $password)) {
             throw new RuntimeException('Неверный логин или пароль либо доступ к КЦ отключён.');
         }
-        header('Location: index.php');
+        header('Location: card_refund.php');
         exit;
     } catch (Throwable $e) {
         $error = $e->getMessage();

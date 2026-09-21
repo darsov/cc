@@ -5,6 +5,7 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 $required = [
     'site/card_refund.php',
+    'site/card_refund.js',
     'site/card_refund_lib.php',
     'site/bootstrap.php',
     'site/bridge_api.php',
@@ -24,6 +25,7 @@ foreach ($required as $file) {
 $page = file_get_contents($root . '/site/card_refund.php');
 $index = file_get_contents($root . '/site/index.php');
 $login = file_get_contents($root . '/site/login.php');
+$refundScript = file_get_contents($root . '/site/card_refund.js');
 $library = file_get_contents($root . '/site/card_refund_lib.php');
 $bridge = file_get_contents($root . '/site/bridge_api.php');
 $bootstrap = file_get_contents($root . '/site/bootstrap.php');
@@ -33,12 +35,16 @@ $checks = [
     [str_contains($page, 'enctype="multipart/form-data"'), 'Upload form is missing.'],
     [str_contains($page, 'ccRequireAuth()'), 'Refund authentication is missing.'],
     [str_contains($page, 'Отправить в CLZ'), 'CLZ upload button label is missing.'],
+    [str_contains($page, 'id="refund-submit" type="submit" disabled'), 'Upload button is not disabled initially.'],
+    [str_contains($page, 'Уже загружено:'), 'Duplicate upload label is unclear.'],
+    [!str_contains($page, '— обязательная'), 'Required/optional hint is still visible.'],
+    [str_contains($refundScript, 'fileInput.files.length === 0'), 'Upload button file-state logic is missing.'],
     [str_contains($page, 'Результат загрузки'), 'Per-row result table is missing.'],
     [!str_contains($page, 'Они попадут в защищённую очередь'), 'Internal queue text is still visible.'],
     [!str_contains($page, 'Сам XLSX не сохраняется'), 'Technical XLSX note is still visible.'],
-    [str_contains($index, '💳 Возврат подарочного сертификата'), 'Main CC action is missing.'],
+    [str_contains($index, "Location: card_refund.php"), 'Main CC redirect is missing.'],
+    [str_contains($login, "Location: card_refund.php"), 'Login redirect to refund upload is missing.'],
     [!str_contains($index, 'КЦ запущен'), 'Legacy CC splash is still visible.'],
-    [str_contains($index, 'color-scheme: light'), 'Main page is not light.'],
     [str_contains($login, 'color-scheme:light'), 'Login page is not light.'],
     [str_contains($library, 'ZipArchive'), 'XLSX reader is missing.'],
     [str_contains($library, 'ccRefundQueue'), 'Local refund queue is missing.'],

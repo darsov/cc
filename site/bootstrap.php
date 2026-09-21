@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-const CC_APP_VERSION = '2026-09-21.05';
+const CC_APP_VERSION = '2026-09-21.06';
 
 function ccEnvironmentValue(string $name): ?string
 {

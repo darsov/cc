@@ -106,6 +106,8 @@ function ccBridgeSyncUsers(PDO $pdo, array $payload): array
             `password_hash` = VALUES(`password_hash`),
             `department_name` = VALUES(`department_name`),
             `is_active` = 1,
+            `failed_login_attempts` = 0,
+            `locked_until` = NULL,
             `synced_at` = NOW()'
     );
     $pdo->beginTransaction();

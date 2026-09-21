@@ -40,6 +40,8 @@ $checks = [
     [str_contains($bridge, 'ccBridgeAcknowledgeRefunds'), 'Refund acknowledgment is missing.'],
     [str_contains($bootstrap, 'password_verify'), 'Local login verification is missing.'],
     [str_contains($bootstrap, '$_SERVER'), 'Apache SetEnv fallback is missing.'],
+    [str_contains($bootstrap, "'REDIRECT_'"), 'Redirected SetEnv fallback is missing.'],
+    [str_contains($bootstrap, 'apache_getenv'), 'Apache environment fallback is missing.'],
     [str_contains($migration, 'cc_users'), 'CC users table migration is missing.'],
     [str_contains($migration, 'cc_card_refund_queue'), 'CC refund queue migration is missing.'],
 ];

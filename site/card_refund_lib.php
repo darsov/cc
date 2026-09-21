@@ -116,7 +116,10 @@ function ccRefundReadWorksheet(ZipArchive $zip): array
         }
         if ($row) {
             ksort($row);
-            $rows[] = $row;
+            $rows[] = [
+                'number' => max(1, (int)($rowNode['r'] ?? (count($rows) + 1))),
+                'cells' => $row,
+            ];
         }
     }
     return $rows;
@@ -243,7 +246,8 @@ function ccRefundReadXlsx(string $path, int $fileSize): array
         }
     }
 
-    $headerRow = array_shift($rows);
+    $header = array_shift($rows);
+    $headerRow = is_array($header['cells'] ?? null) ? $header['cells'] : [];
     $columns = [];
     foreach ($headerRow as $index => $header) {
         $normalized = ccRefundNormalizeHeader((string)($header['value'] ?? ''));
@@ -258,8 +262,9 @@ function ccRefundReadXlsx(string $path, int $fileSize): array
     }
 
     $records = [];
-    foreach ($rows as $rowIndex => $row) {
-        $rowNumber = $rowIndex + 2;
+    foreach ($rows as $rowData) {
+        $rowNumber = max(2, (int)($rowData['number'] ?? 0));
+        $row = is_array($rowData['cells'] ?? null) ? $rowData['cells'] : [];
         $values = [];
         $numericCells = [];
         foreach (array_keys($aliases) as $field) {

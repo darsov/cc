@@ -199,12 +199,14 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
 
         <div class="columns">
             Порядок колонок:<br>
-            <code>Номер подарочной карты</code>,
-            <code>Дата обращения клиента</code>,
+            <code>Номер карты</code>,
+            <code>Дата обращения</code>,
             <code>Номер обращения</code>,
-            <code>ФИО</code>,
-            <code>БИК</code>,
-            <code>Расчётный счёт</code>.
+            <code>Телефон в формате 7XXXXXXXXXX</code>,
+            <code>Электронная почта только xxx@xxx.xx</code>,
+            <code>ФИО только русские буквы</code>,
+            <code>БИК 10 цифр</code>,
+            <code>РС 20 цифр</code>.
         </div>
 
         <form class="upload-form" method="post" enctype="multipart/form-data">

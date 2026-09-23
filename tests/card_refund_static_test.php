@@ -51,6 +51,9 @@ $checks = [
     [str_contains($library, "'aes-256-gcm'"), 'Refund queue encryption is missing.'],
     [str_contains($library, 'CC_REFUND_MAX_ROWS'), 'Row limit is missing.'],
     [str_contains($library, "(?:\\d{10}|\\d{20})"), 'Gift card length validation is missing.'],
+    [str_contains($library, "'customer_phone'"), 'Customer phone support is missing.'],
+    [str_contains($library, "'customer_email'"), 'Customer email support is missing.'],
+    [str_contains($page, 'БИК 10 цифр'), 'The new 10-digit BIC format hint is missing.'],
     [str_contains($library, 'Загружено с замечаниями'), 'Partial row acceptance is missing.'],
     [str_contains($library, "(int)(\$rowNode['r']"), 'Exact XLSX row numbers are missing.'],
     [str_contains($bridge, 'ccBridgeVerify'), 'Bridge authentication is missing.'],
@@ -105,6 +108,31 @@ if ($validName === '' || $validNameIssue !== null) {
 [$invalidName, $invalidNameIssue] = ccRefundOptionalFullNameValue('John Smith');
 if ($invalidName !== '' || $invalidNameIssue === null) {
     throw new RuntimeException('A non-Cyrillic full name was accepted.');
+}
+
+[$validPhone, $validPhoneIssue] = ccRefundOptionalPhoneValue('79991234567');
+if ($validPhone !== '79991234567' || $validPhoneIssue !== null) {
+    throw new RuntimeException('A valid customer phone was rejected.');
+}
+
+[$invalidPhone, $invalidPhoneIssue] = ccRefundOptionalPhoneValue('89991234567');
+if ($invalidPhone !== '' || $invalidPhoneIssue === null) {
+    throw new RuntimeException('An invalid customer phone was accepted.');
+}
+
+[$validEmail, $validEmailIssue] = ccRefundOptionalEmailValue('User@example.ru');
+if ($validEmail !== 'user@example.ru' || $validEmailIssue !== null) {
+    throw new RuntimeException('A valid customer email was rejected.');
+}
+
+[$invalidEmail, $invalidEmailIssue] = ccRefundOptionalEmailValue('user@example');
+if ($invalidEmail !== '' || $invalidEmailIssue === null) {
+    throw new RuntimeException('An invalid customer email was accepted.');
+}
+
+[$validBic, $validBicIssue] = ccRefundOptionalDigitsValue('1234567890', 10, 'bad');
+if ($validBic !== '1234567890' || $validBicIssue !== null) {
+    throw new RuntimeException('A valid 10-digit BIC was rejected.');
 }
 
 echo "OK\n";

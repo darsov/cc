@@ -196,6 +196,32 @@ function ccRefundOptionalFullNameValue(string $value): array
     return [$value, null];
 }
 
+function ccRefundOptionalPhoneValue(string $value): array
+{
+    $value = ccRefundNormalizeExcelInteger($value);
+    if ($value === '') {
+        return ['', null];
+    }
+    if (!preg_match('/^7\d{10}$/D', $value)) {
+        return ['', 'Неверный формат телефона (ожидается 7XXXXXXXXXX).'];
+    }
+    return [$value, null];
+}
+
+function ccRefundOptionalEmailValue(string $value): array
+{
+    $value = mb_strtolower(trim($value), 'UTF-8');
+    if ($value === '') {
+        return ['', null];
+    }
+    if (mb_strlen($value, 'UTF-8') > 320
+        || !filter_var($value, FILTER_VALIDATE_EMAIL)
+        || !preg_match('/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/uD', $value)) {
+        return ['', 'Неверный формат электронной почты (ожидается xxx@xxx.xx).'];
+    }
+    return [$value, null];
+}
+
 function ccRefundReadXlsx(string $path, int $fileSize): array
 {
     if (!class_exists(ZipArchive::class)) {
@@ -235,9 +261,14 @@ function ccRefundReadXlsx(string $path, int $fileSize): array
         'card_number' => ['номер подарочной карты', 'номер карты'],
         'client_contact_date' => ['дата обращения клиента', 'дата обращения'],
         'request_number' => ['номер обращения'],
-        'customer_full_name' => ['фио', 'ф и о'],
-        'bank_bic' => ['бик'],
-        'bank_account' => ['расчетный счет', 'рассчетный счет', 'расчетный счёт', 'рассчетный счёт'],
+        'customer_phone' => ['телефон', 'телефон в формате 7xxxxxxxxxx'],
+        'customer_email' => ['email', 'e mail', 'электронная почта', 'электронная почта только xxx xxx xx'],
+        'customer_full_name' => ['фио', 'ф и о', 'фио только русские буквы'],
+        'bank_bic' => ['бик', 'бик 10 цифр'],
+        'bank_account' => [
+            'рс', 'р с', 'рс 20 цифр',
+            'расчетный счет', 'рассчетный счет', 'расчетный счёт', 'рассчетный счёт',
+        ],
     ];
     $normalizedAliases = [];
     foreach ($aliases as $field => $values) {
@@ -288,10 +319,12 @@ function ccRefundReadXlsx(string $path, int $fileSize): array
             $numericCells['client_contact_date']
         );
         [$customerFullName, $fullNameIssue] = ccRefundOptionalFullNameValue($values['customer_full_name']);
+        [$customerPhone, $phoneIssue] = ccRefundOptionalPhoneValue($values['customer_phone']);
+        [$customerEmail, $emailIssue] = ccRefundOptionalEmailValue($values['customer_email']);
         [$bankBic, $bicIssue] = ccRefundOptionalDigitsValue(
             $values['bank_bic'],
-            9,
-            'Неверный формат БИК (ожидается 9 цифр).'
+            10,
+            'Неверный формат БИК (ожидается 10 цифр).'
         );
         [$bankAccount, $accountIssue] = ccRefundOptionalDigitsValue(
             $values['bank_account'],
@@ -310,6 +343,8 @@ function ccRefundReadXlsx(string $path, int $fileSize): array
             $cardIssue,
             $dateIssue,
             $requestIssue,
+            $phoneIssue,
+            $emailIssue,
             $fullNameIssue,
             $bicIssue,
             $accountIssue,
@@ -322,6 +357,8 @@ function ccRefundReadXlsx(string $path, int $fileSize): array
             'card_number' => $cardNumber,
             'client_contact_date' => $clientContactDate,
             'request_number' => $requestNumber,
+            'customer_phone' => $customerPhone,
+            'customer_email' => $customerEmail,
             'customer_full_name' => $customerFullName,
             'bank_bic' => $bankBic,
             'bank_account' => $bankAccount,
@@ -348,6 +385,8 @@ function ccRefundPayloadJson(array $record): string
         'card_number' => (string)$record['card_number'],
         'client_contact_date' => (string)$record['client_contact_date'],
         'request_number' => (string)$record['request_number'],
+        'customer_phone' => (string)$record['customer_phone'],
+        'customer_email' => (string)$record['customer_email'],
         'customer_full_name' => (string)$record['customer_full_name'],
         'bank_bic' => (string)$record['bank_bic'],
         'bank_account' => (string)$record['bank_account'],

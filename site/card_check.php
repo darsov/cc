@@ -56,11 +56,10 @@ form.check{display:flex;flex-wrap:wrap;gap:.7rem}input{padding:.8rem;border:1px 
 <button type="submit">Проверить</button></form>
 <?php if ($error !== null): ?><p class="error"><?= ccEscape($error) ?></p><?php endif; ?>
 <?php if ($data !== null): ?><div class="details">
-<?php if ($data['datareonError'] !== null): ?>Организация: ошибка проверки — <?= ccEscape($data['datareonError']) ?>
-<?php elseif ($data['organizationId'] === null): ?>Карта не найдена в Datareon.
-<?php else: ?>Организация: <?= ccEscape($data['name'] !== '' ? $data['name'] : $data['organizationId']) ?>
-<small>(<?= ccEscape($data['organizationId']) ?>)</small><?php endif; ?><br>
-<?php if ($data['mindbox'] !== null): ?>Баланс Mindbox: <?= ccEscape((string)($data['mindbox']['balance'] ?? '')) ?> ₽
-<?php else: ?>Баланс Mindbox: ошибка проверки — <?= ccEscape((string)$data['mindboxError']) ?><?php endif; ?>
+<?php if ($data['datareonError'] !== null): ?><strong>Организация:</strong> ошибка проверки — <?= ccEscape($data['datareonError']) ?>
+<?php elseif ($data['organizationId'] === null): ?><strong>Организация:</strong> карта не найдена в Datareon.
+<?php else: ?><strong>Организация:</strong> <?= ccEscape($data['name'] !== '' ? $data['name'] : 'Организация отсутствует в справочнике КЦ') ?><?php endif; ?><br>
+<?php if ($data['mindbox'] !== null): ?><strong>Баланс Mindbox:</strong> <?= ccEscape((string)($data['mindbox']['balance'] ?? '')) ?> ₽
+<?php else: ?><strong>Баланс Mindbox:</strong> ошибка проверки — <?= ccEscape((string)$data['mindboxError']) ?><?php endif; ?>
 </div><?php endif; ?>
 </section></main></body></html>

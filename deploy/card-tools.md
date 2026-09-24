@@ -15,6 +15,7 @@ git switch --detach <проверенный-commit-cc>
 php -l site/card_services.php
 php -l site/bridge_api.php
 php -l site/card_check.php
+php -l site/index.php
 php tests/card_refund_static_test.php
 php tests/mindbox_card_test.php
 ```
@@ -40,7 +41,7 @@ PHP
 `chgrp: Operation not permitted`):
 
 ```bash
-rsync -vc site/card_services.php site/bridge_api.php site/card_check.php /var/www/omniweb/
+rsync -vc site/card_services.php site/bridge_api.php site/card_check.php site/index.php /var/www/omniweb/
 ```
 
 На OMNI после проверки и включения изменения в `main` выполните

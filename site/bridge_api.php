@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/card_refund_lib.php';
+require_once __DIR__ . '/card_services.php';
 
 header('Content-Type: application/json; charset=UTF-8');
 header('X-Content-Type-Options: nosniff');
@@ -176,6 +177,61 @@ function ccBridgeAcknowledgeRefunds(PDO $pdo, array $payload): array
     return ['acknowledged' => $stmt->rowCount()];
 }
 
+function ccBridgeLookupOrganizations(array $payload): array
+{
+    $cards = $payload['card_numbers'] ?? null;
+    if (!is_array($cards) || count($cards) < 1 || count($cards) > 50) {
+        throw new InvalidArgumentException('Укажите от 1 до 50 номеров карт.');
+    }
+    $numbers = [];
+    foreach ($cards as $card) {
+        $number = ccCardNumber((string)$card);
+        $numbers[$number] = true;
+    }
+    return ['organizations' => ccFindGiftCardOrganizationsBatch(array_keys($numbers))];
+}
+
+function ccBridgeSyncShops(PDO $pdo, array $payload): array
+{
+    $shops = $payload['shops'] ?? null;
+    if (!is_array($shops) || count($shops) > 5000) {
+        throw new InvalidArgumentException('Некорректный список магазинов.');
+    }
+    $upsertShop = $pdo->prepare('INSERT INTO `cc_shops`
+        (`datareon_shop_id`,`shop_id`,`organization_id`,`organization_name`,`synced_at`)
+        VALUES (:datareon_shop_id,:shop_id,:organization_id,:organization_name,NOW())
+        ON DUPLICATE KEY UPDATE `shop_id`=VALUES(`shop_id`),
+            `organization_id`=VALUES(`organization_id`),
+            `organization_name`=VALUES(`organization_name`),`synced_at`=NOW()');
+    $upsertOrg = $pdo->prepare('INSERT INTO `cc_organizations` (`id`,`name`)
+        VALUES (:id,:name) ON DUPLICATE KEY UPDATE `name`=VALUES(`name`)');
+    $pdo->beginTransaction();
+    try {
+        foreach ($shops as $shop) {
+            if (!is_array($shop)) throw new InvalidArgumentException('Некорректный магазин.');
+            $id = trim((string)($shop['datareon_shop_id'] ?? ''));
+            $shopId = trim((string)($shop['shop_id'] ?? ''));
+            $orgId = strtolower(trim((string)($shop['organization_id'] ?? '')));
+            $orgName = trim((string)($shop['organization_name'] ?? ''));
+            if ($id === '' || strlen($id) > 255 || strlen($shopId) > 255
+                || strlen($orgName) > 255 || ($orgId !== ''
+                && !preg_match('/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/D', $orgId))) {
+                throw new InvalidArgumentException('Некорректные данные магазина.');
+            }
+            $upsertShop->execute([
+                'datareon_shop_id' => $id, 'shop_id' => $shopId ?: null,
+                'organization_id' => $orgId ?: null, 'organization_name' => $orgName ?: null,
+            ]);
+            if ($orgId !== '' && $orgName !== '') $upsertOrg->execute(['id' => $orgId, 'name' => $orgName]);
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+    return ['synced' => count($shops)];
+}
+
 $body = file_get_contents('php://input');
 if (!is_string($body)) {
     $body = '';
@@ -205,6 +261,12 @@ try {
     }
     if ($action === 'ack_refunds' && $method === 'POST') {
         ccBridgeReply(200, ['ok' => true] + ccBridgeAcknowledgeRefunds($pdo, ccBridgeJsonBody($body)));
+    }
+    if ($action === 'lookup_organizations' && $method === 'POST') {
+        ccBridgeReply(200, ['ok' => true] + ccBridgeLookupOrganizations(ccBridgeJsonBody($body)));
+    }
+    if ($action === 'sync_shops' && $method === 'POST') {
+        ccBridgeReply(200, ['ok' => true] + ccBridgeSyncShops($pdo, ccBridgeJsonBody($body)));
     }
     ccBridgeReply(405, ['ok' => false, 'error' => 'Неизвестное действие или метод.']);
 } catch (JsonException | InvalidArgumentException $e) {

@@ -15,10 +15,13 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         ccEnsureCardToolsSchema(ccDb());
         $card = ccCardNumber($card);
         $organizationId = null;
+        $shopId = null;
         $datareonError = null;
         try {
-            $organizationId = ccFindGiftCardOrganization($card);
-            ccStoreCardOrganizations(ccDb(), [$card => ['organization_id' => $organizationId]]);
+            $lookup = ccFindGiftCardDetails($card);
+            ccStoreCardOrganizations(ccDb(), [$card => $lookup]);
+            $organizationId = $lookup['organization_id'];
+            $shopId = $lookup['shop_id'];
         }
         catch (Throwable $e) { $datareonError = $e->getMessage(); }
         $mindbox = null;
@@ -26,7 +29,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         try { $mindbox = ccCheckMindboxGiftCard($card); }
         catch (Throwable $e) { $mindboxError = $e->getMessage(); }
         $name = $organizationId === null ? '' : ccCardOrganization(ccDb(), $organizationId);
-        $data = compact('organizationId', 'name', 'mindbox', 'mindboxError', 'datareonError');
+        $data = compact('organizationId', 'shopId', 'name', 'mindbox', 'mindboxError', 'datareonError');
         ccLogAction(ccDb(), (int)$currentUser['id'], 'card_check', $card,
             $datareonError !== null ? 'datareon_error' : ($organizationId === null ? 'not_found' : 'found'));
     } catch (Throwable $e) {
@@ -57,8 +60,9 @@ form.check{display:flex;flex-wrap:wrap;gap:.7rem}input{padding:.8rem;border:1px 
 <?php if ($error !== null): ?><p class="error"><?= ccEscape($error) ?></p><?php endif; ?>
 <?php if ($data !== null): ?><div class="details">
 <?php if ($data['datareonError'] !== null): ?><strong>Организация:</strong> ошибка проверки — <?= ccEscape($data['datareonError']) ?>
-<?php elseif ($data['organizationId'] === null): ?><strong>Организация:</strong> карта не найдена в Datareon.
+<?php elseif ($data['organizationId'] === null): ?><strong>Организация:</strong> не определена Datareon.
 <?php else: ?><strong>Организация:</strong> <?= ccEscape($data['name'] !== '' ? $data['name'] : 'Организация отсутствует в справочнике КЦ') ?><?php endif; ?><br>
+<?php if ($data['shopId'] !== null): ?><strong>shopId Datareon:</strong> <?= ccEscape($data['shopId']) ?><br><?php endif; ?>
 <?php if ($data['mindbox'] !== null): ?><strong>Баланс Mindbox:</strong> <?= ccEscape((string)($data['mindbox']['balance'] ?? '')) ?> ₽
 <?php else: ?><strong>Баланс Mindbox:</strong> ошибка проверки — <?= ccEscape((string)$data['mindboxError']) ?><?php endif; ?>
 </div><?php endif; ?>

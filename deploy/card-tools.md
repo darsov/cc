@@ -18,6 +18,7 @@ php -l site/card_check.php
 php -l site/index.php
 php tests/card_refund_static_test.php
 php tests/mindbox_card_test.php
+php tests/giftcard_lookup_test.php
 ```
 
 Четыре таблицы из `database/migrate_cc_card_tools.sql` уже созданы. Создайте новую
@@ -37,11 +38,49 @@ echo "cc_mindbox_settings OK\n";
 PHP
 ```
 
+Для сохранения `shopId` выполните следующую миграцию **один раз до** выкладки
+нового `card_services.php`, также через PDO приложения под `omniweb`:
+
+```bash
+php <<'PHP'
+<?php
+require '/var/www/omniweb/bootstrap.php';
+$pdo = ccDb();
+if ($pdo->query('SELECT DATABASE()')->fetchColumn() !== 'omniweb') {
+    throw new RuntimeException('Подключена не база omniweb.');
+}
+$pdo->exec(file_get_contents('database/migrate_cc_card_shop_id.sql'));
+$pdo->query('SELECT `shop_id` FROM `cc_card_organizations` LIMIT 0');
+echo "cc_card_organizations.shop_id OK\n";
+PHP
+```
+
 Копируйте файлы без сохранения владельца и группы (ранее `rsync -a` вернул
 `chgrp: Operation not permitted`):
 
 ```bash
 rsync -vc site/card_services.php site/bridge_api.php site/card_check.php site/index.php /var/www/omniweb/
+```
+
+Значение из `giftcardsFind.shopId` сохраняется в `cc_card_organizations.shop_id`;
+`lookup_organizations` возвращает `shop_id` вместе с `organization_id`.
+Пустой `shopId` превращается в SQL `NULL`. Проверить ответ и сохранение можно
+после появления реального кода магазина:
+
+```bash
+php <<'PHP'
+<?php
+require '/var/www/omniweb/card_services.php';
+$lookup = ccFindGiftCardDetails('2003138096');
+ccEnsureCardToolsSchema(ccDb());
+ccStoreCardOrganizations(ccDb(), ['2003138096' => $lookup]);
+var_export($lookup);
+echo "\n";
+$stmt = ccDb()->prepare('SELECT `organization_id`,`shop_id` FROM `cc_card_organizations` WHERE `card_number`=?');
+$stmt->execute(['2003138096']);
+var_export($stmt->fetch(PDO::FETCH_ASSOC));
+echo "\n";
+PHP
 ```
 
 На OMNI после проверки и включения изменения в `main` выполните

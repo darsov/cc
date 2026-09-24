@@ -11,10 +11,10 @@ function ccEnsureCardToolsSchema(PDO $pdo): void
     try {
         $pdo->query('SELECT `id`,`name` FROM `cc_organizations` LIMIT 0');
         $pdo->query('SELECT `datareon_shop_id`,`organization_id` FROM `cc_shops` LIMIT 0');
-        $pdo->query('SELECT `card_number`,`organization_id`,`checked_at` FROM `cc_card_organizations` LIMIT 0');
+        $pdo->query('SELECT `card_number`,`organization_id`,`shop_id`,`checked_at` FROM `cc_card_organizations` LIMIT 0');
         $pdo->query('SELECT `id`,`user_id`,`action`,`card_number`,`outcome` FROM `cc_user_actions` LIMIT 0');
     } catch (Throwable $e) {
-        throw new RuntimeException('Таблицы карт КЦ не готовы. Выполните database/migrate_cc_card_tools.sql.', 0, $e);
+        throw new RuntimeException('Таблицы карт КЦ не готовы. Выполните database/migrate_cc_card_tools.sql и database/migrate_cc_card_shop_id.sql.', 0, $e);
     }
 }
 
@@ -38,22 +38,50 @@ function ccCardOrganization(PDO $pdo, string $organizationId): string
 function ccStoreCardOrganizations(PDO $pdo, array $results): void
 {
     $stmt = $pdo->prepare('INSERT INTO `cc_card_organizations`
-        (`card_number`,`organization_id`,`checked_at`) VALUES (:card_number,:organization_id,NOW())
-        ON DUPLICATE KEY UPDATE `organization_id`=VALUES(`organization_id`),`checked_at`=NOW()');
+        (`card_number`,`organization_id`,`shop_id`,`checked_at`)
+        VALUES (:card_number,:organization_id,:shop_id,NOW())
+        ON DUPLICATE KEY UPDATE `organization_id`=VALUES(`organization_id`),
+            `shop_id`=VALUES(`shop_id`),`checked_at`=NOW()');
     foreach ($results as $number => $result) {
         if (!is_array($result) || !array_key_exists('organization_id', $result)) continue;
         $stmt->execute([
             'card_number' => ccCardNumber((string)$number),
             'organization_id' => $result['organization_id'],
+            'shop_id' => $result['shop_id'] ?? null,
         ]);
     }
 }
 
-/**
- * This is a read-only synchronous query. A gateway or backend failure must
- * never be interpreted as a missing card or an allowed refund.
- */
-function ccFindGiftCardOrganization(string $cardNumber): ?string
+/** Parse both fields from one response; a malformed ID must not be cached. */
+function ccParseGiftCardLookup(array $result, string $cardNumber): array
+{
+    if (($result['giftcartNumber'] ?? null) !== $cardNumber) {
+        throw new RuntimeException('Datareon вернул некорректный ответ для карты.');
+    }
+    $organizationId = $result['organizationId'] ?? null;
+    if ($organizationId !== null && !is_string($organizationId)) {
+        throw new RuntimeException('Datareon вернул некорректный идентификатор организации.');
+    }
+    $organizationId = trim((string)$organizationId);
+    if ($organizationId !== '' && !preg_match('/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iD', $organizationId)) {
+        throw new RuntimeException('Datareon вернул некорректный идентификатор организации.');
+    }
+    $shopId = $result['shopId'] ?? null;
+    if ($shopId !== null && !is_string($shopId)) {
+        throw new RuntimeException('Datareon вернул некорректный shopId.');
+    }
+    $shopId = trim((string)$shopId);
+    if (strlen($shopId) > 100 || preg_match('/[\x00-\x1f\x7f]/', $shopId)) {
+        throw new RuntimeException('Datareon вернул некорректный shopId.');
+    }
+    return [
+        'organization_id' => $organizationId === '' ? null : strtolower($organizationId),
+        'shop_id' => $shopId === '' ? null : $shopId,
+    ];
+}
+
+/** A gateway or backend failure must never be interpreted as a missing card. */
+function ccFindGiftCardDetails(string $cardNumber): array
 {
     $cardNumber = ccCardNumber($cardNumber);
     if (!function_exists('curl_init')) {
@@ -95,15 +123,10 @@ function ccFindGiftCardOrganization(string $cardNumber): ?string
             throw new RuntimeException('Datareon вернул HTTP ' . $status . '. Проверка организации не выполнена.');
         }
         $result = json_decode($response, true);
-        if (!is_array($result) || (string)($result['giftcartNumber'] ?? '') !== $cardNumber) {
+        if (!is_array($result)) {
             throw new RuntimeException('Datareon вернул некорректный ответ для карты.');
         }
-        $organizationId = trim((string)($result['organizationId'] ?? ''));
-        if ($organizationId === '') return null;
-        if (!preg_match('/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iD', $organizationId)) {
-            throw new RuntimeException('Datareon вернул некорректный идентификатор организации.');
-        }
-        return strtolower($organizationId);
+        return ccParseGiftCardLookup($result, $cardNumber);
     }
     throw new RuntimeException('Не удалось проверить организацию карты.');
 }
@@ -119,7 +142,7 @@ function ccFindGiftCardOrganizationsBatch(array $cardNumbers): array
     }
     if (!function_exists('curl_multi_init')) {
         foreach (array_keys($remaining) as $number) {
-            try { $results[$number] = ['organization_id' => ccFindGiftCardOrganization($number)]; }
+            try { $results[$number] = ccFindGiftCardDetails($number); }
             catch (Throwable $e) { $results[$number] = ['error' => $e->getMessage()]; }
         }
         return $results;
@@ -161,12 +184,11 @@ function ccFindGiftCardOrganizationsBatch(array $cardNumbers): array
                     $results[$number] = ['error' => 'Datareon вернул HTTP ' . $status . '.'];
                 } else {
                     $data = json_decode($response, true);
-                    $id = is_array($data) ? trim((string)($data['organizationId'] ?? '')) : '';
-                    if (!is_array($data) || (string)($data['giftcartNumber'] ?? '') !== $number
-                        || ($id !== '' && !preg_match('/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iD', $id))) {
-                        $results[$number] = ['error' => 'Datareon вернул некорректный ответ.'];
-                    } else {
-                        $results[$number] = ['organization_id' => $id === '' ? null : strtolower($id)];
+                    try {
+                        if (!is_array($data)) throw new RuntimeException('Datareon вернул некорректный ответ.');
+                        $results[$number] = ccParseGiftCardLookup($data, $number);
+                    } catch (Throwable $e) {
+                        $results[$number] = ['error' => $e->getMessage()];
                     }
                 }
                 curl_multi_remove_handle($multi, $curl);

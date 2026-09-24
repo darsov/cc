@@ -379,10 +379,38 @@ function ccRefundSourceKey(string $requestNumber, string $cardNumber): string
     );
 }
 
+function ccRefundManualRecord(array $form): array
+{
+    $values = [];
+    foreach (['card_number', 'client_contact_date', 'request_number', 'customer_phone',
+              'customer_email', 'customer_full_name', 'bank_bic', 'bank_account'] as $field) {
+        $values[$field] = trim((string)($form[$field] ?? ''));
+    }
+    [$card, $cardIssue] = ccRefundCardNumberValue($values['card_number']);
+    [$date, $dateIssue] = ccRefundOptionalDateValue($values['client_contact_date'], false);
+    [$phone, $phoneIssue] = ccRefundOptionalPhoneValue($values['customer_phone']);
+    [$email, $emailIssue] = ccRefundOptionalEmailValue($values['customer_email']);
+    [$name, $nameIssue] = ccRefundOptionalFullNameValue($values['customer_full_name']);
+    [$bic, $bicIssue] = ccRefundOptionalDigitsValue($values['bank_bic'], 10, 'Неверный формат БИК (ожидается 10 цифр).');
+    [$account, $accountIssue] = ccRefundOptionalDigitsValue($values['bank_account'], 20, 'Неверный формат расчётного счёта (ожидается 20 цифр).');
+    $issues = array_values(array_filter([$cardIssue, $dateIssue, $phoneIssue, $emailIssue,
+        $nameIssue, $bicIssue, $accountIssue]));
+    if (mb_strlen($values['request_number'], 'UTF-8') > 100) $issues[] = 'Номер обращения превышает 100 символов.';
+    if ($issues) throw new InvalidArgumentException(implode(' ', $issues));
+    return [
+        '_row_number' => 1, '_issues' => [], '_rejected' => false,
+        'card_number' => $card, 'client_contact_date' => $date,
+        'request_number' => $values['request_number'], 'customer_phone' => $phone,
+        'customer_email' => $email, 'customer_full_name' => $name,
+        'bank_bic' => $bic, 'bank_account' => $account,
+    ];
+}
+
 function ccRefundPayloadJson(array $record): string
 {
     return json_encode([
         'card_number' => (string)$record['card_number'],
+        'organization_id' => (string)($record['organization_id'] ?? ''),
         'client_contact_date' => (string)$record['client_contact_date'],
         'request_number' => (string)$record['request_number'],
         'customer_phone' => (string)$record['customer_phone'],
@@ -481,9 +509,42 @@ function ccRefundQueue(PDO $pdo, array $records, int $submittedByUserId): array
     $resultRows = [];
     $acceptedRecords = [];
 
+    require_once __DIR__ . '/card_services.php';
+    $cardsToCheck = [];
+    foreach ($records as $record) {
+        if (empty($record['_rejected']) && !empty($record['card_number'])) {
+            $cardsToCheck[(string)$record['card_number']] = true;
+        }
+    }
+    $organizations = [];
+    foreach (array_chunk(array_keys($cardsToCheck), 50) as $cardBatch) {
+        $organizations += ccFindGiftCardOrganizationsBatch($cardBatch);
+    }
+
     foreach ($records as $record) {
         $rowNumber = (int)($record['_row_number'] ?? 0);
         $issues = is_array($record['_issues'] ?? null) ? $record['_issues'] : [];
+        if (empty($record['_rejected'])) {
+            try {
+                $organization = $organizations[(string)$record['card_number']] ?? [];
+                if (isset($organization['error']) || !array_key_exists('organization_id', $organization)) {
+                    throw new RuntimeException((string)($organization['error'] ?? 'Ответ Datareon отсутствует.'));
+                }
+                $organizationId = $organization['organization_id'];
+                if ($organizationId === null) {
+                    $issues[] = 'Карта не найдена в Datareon.';
+                    $record['_rejected'] = true;
+                } elseif ($organizationId !== CC_ALLOWED_REFUND_ORGANIZATION_ID) {
+                    $issues[] = 'Карта выпущена другой организацией.';
+                    $record['_rejected'] = true;
+                } else {
+                    $record['organization_id'] = $organizationId;
+                }
+            } catch (Throwable $e) {
+                $issues[] = 'Проверка организации не выполнена: ' . $e->getMessage();
+                $record['_rejected'] = true;
+            }
+        }
         if (!empty($record['_rejected'])) {
             $rejected++;
             $resultRows[$rowNumber] = [

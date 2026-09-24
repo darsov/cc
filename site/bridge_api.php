@@ -177,7 +177,7 @@ function ccBridgeAcknowledgeRefunds(PDO $pdo, array $payload): array
     return ['acknowledged' => $stmt->rowCount()];
 }
 
-function ccBridgeLookupOrganizations(array $payload): array
+function ccBridgeLookupOrganizations(PDO $pdo, array $payload): array
 {
     $cards = $payload['card_numbers'] ?? null;
     if (!is_array($cards) || count($cards) < 1 || count($cards) > 50) {
@@ -188,7 +188,10 @@ function ccBridgeLookupOrganizations(array $payload): array
         $number = ccCardNumber((string)$card);
         $numbers[$number] = true;
     }
-    return ['organizations' => ccFindGiftCardOrganizationsBatch(array_keys($numbers))];
+    ccEnsureCardToolsSchema($pdo);
+    $results = ccFindGiftCardOrganizationsBatch(array_keys($numbers));
+    ccStoreCardOrganizations($pdo, $results);
+    return ['organizations' => $results];
 }
 
 function ccBridgeSyncShops(PDO $pdo, array $payload): array
@@ -263,7 +266,7 @@ try {
         ccBridgeReply(200, ['ok' => true] + ccBridgeAcknowledgeRefunds($pdo, ccBridgeJsonBody($body)));
     }
     if ($action === 'lookup_organizations' && $method === 'POST') {
-        ccBridgeReply(200, ['ok' => true] + ccBridgeLookupOrganizations(ccBridgeJsonBody($body)));
+        ccBridgeReply(200, ['ok' => true] + ccBridgeLookupOrganizations($pdo, ccBridgeJsonBody($body)));
     }
     if ($action === 'sync_shops' && $method === 'POST') {
         ccBridgeReply(200, ['ok' => true] + ccBridgeSyncShops($pdo, ccBridgeJsonBody($body)));

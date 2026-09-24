@@ -8,20 +8,19 @@
 curl --connect-timeout 5 --max-time 10 -I https://omni.clz.ru/
 ```
 
-Локальный Unix-сокет недоступен пользователю `omniweb` (ошибка 2002/13). Подключайтесь по TCP к `127.0.0.1:3306` и проверьте права на создание таблиц в MariaDB:
+Локальный Unix-сокет недоступен пользователю `omniweb` (2002/13).
+Ручное подключение по TCP дошло до MariaDB, но пароль был отклонён (1045).
+Проверьте права через уже настроенное подключение PHP приложения без вывода пароля:
 
 ```bash
-mariadb --protocol=TCP -h 127.0.0.1 -P 3306 -u omniweb -p omniweb -e 'SHOW GRANTS;'
+php -r 'require "site/bootstrap.php"; $pdo=ccDb(); echo "DB user: ", $pdo->query("SELECT CURRENT_USER()")->fetchColumn(), PHP_EOL; foreach ($pdo->query("SHOW GRANTS")->fetchAll(PDO::FETCH_COLUMN) as $grant) echo $grant, PHP_EOL;'
 ```
 
-Если есть `CREATE`, выполните SQL до копирования PHP:
-
-```bash
-mariadb --protocol=TCP -h 127.0.0.1 -P 3306 -u omniweb -p omniweb < database/migrate_cc_card_tools.sql
-```
-
-Если `CREATE` отсутствует, передайте администратору БД файл
-`database/migrate_cc_card_tools.sql` для выполнения в базе `omniweb`.
+Если `CREATE` для `omniweb` отсутствует, администратор MariaDB выполняет
+`database/migrate_cc_card_tools.sql` в базе `omniweb` со своей учётной записью.
+Если `CREATE` есть, используйте действительные реквизиты подключения,
+полученные от администратора: команда `mariadb -u omniweb -p` не использует
+автоматически пароль приложения. Не выводите пароль из конфигурации в терминал.
 
 ```bash
 find site tests -name '*.php' -print0 | xargs -0 -n1 php -l

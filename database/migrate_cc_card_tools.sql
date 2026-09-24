@@ -19,6 +19,13 @@ CREATE TABLE IF NOT EXISTS `cc_shops` (
     PRIMARY KEY (`datareon_shop_id`), KEY `idx_cc_shops_organization` (`organization_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS `cc_card_organizations` (
+    `card_number` VARCHAR(20) NOT NULL,
+    `organization_id` CHAR(36) NULL,
+    `checked_at` DATETIME NOT NULL,
+    PRIMARY KEY (`card_number`), KEY `idx_cc_card_org_id` (`organization_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS `cc_user_actions` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `user_id` BIGINT UNSIGNED NOT NULL,

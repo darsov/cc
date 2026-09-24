@@ -44,7 +44,7 @@ $checks = [
     [str_contains($page, 'Результат загрузки'), 'Per-row result table is missing.'],
     [!str_contains($page, 'Они попадут в защищённую очередь'), 'Internal queue text is still visible.'],
     [!str_contains($page, 'Сам XLSX не сохраняется'), 'Technical XLSX note is still visible.'],
-    [str_contains($index, "Location: card_refund.php"), 'Main CC redirect is missing.'],
+    [str_contains($index, "Location: login.php"), 'Main CC redirect to login is missing.'],
     [str_contains($login, "Location: card_refund.php"), 'Login redirect to refund upload is missing.'],
     [!str_contains($index, 'КЦ запущен'), 'Legacy CC splash is still visible.'],
     [str_contains($login, 'color-scheme:light'), 'Login page is not light.'],

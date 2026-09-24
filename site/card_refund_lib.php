@@ -520,6 +520,7 @@ function ccRefundQueue(PDO $pdo, array $records, int $submittedByUserId): array
     foreach (array_chunk(array_keys($cardsToCheck), 50) as $cardBatch) {
         $organizations += ccFindGiftCardOrganizationsBatch($cardBatch);
     }
+    if ($organizations) ccStoreCardOrganizations($pdo, $organizations);
 
     foreach ($records as $record) {
         $rowNumber = (int)($record['_row_number'] ?? 0);

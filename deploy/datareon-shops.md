@@ -16,9 +16,21 @@ Datareon отправляет один магазин на `https://cc.clz.ru/da
 
 ## Выкладка на КЦ
 
-На КЦ нет phpMyAdmin. Под пользователем `omniweb`, без `sudo`, выполните SQL
-через уже проверенный PHP PDO приложения. Миграция расширяет созданную таблицу
-`cc_shops`. Сначала обновите исходники в `~/cc-src`, затем:
+Открытый PR не обновляет файлы на сервере. На КЦ нет phpMyAdmin. Под
+пользователем `omniweb`, без `sudo`, сначала получите код PR в `~/cc-src`:
+
+```bash
+set -e
+cd ~/cc-src
+test -z "$(git status --porcelain)"
+git fetch origin codex/card-tools-org-check-20260924
+git switch --detach FETCH_HEAD
+test -f database/migrate_cc_datareon_shops_push.sql
+test -f site/datareon_shops.php
+```
+
+Затем выполните SQL через уже проверенный PHP PDO приложения. Миграция
+расширяет созданную таблицу `cc_shops`:
 
 ```bash
 cd ~/cc-src
@@ -29,13 +41,19 @@ $pdo = ccDb();
 if ($pdo->query('SELECT DATABASE()')->fetchColumn() !== 'omniweb') {
     throw new RuntimeException('Подключена не база omniweb.');
 }
-$sql = file_get_contents('database/migrate_cc_datareon_shops_push.sql');
-if ($sql === false) {
-    throw new RuntimeException('Не найден SQL миграции.');
+$hasColumn = $pdo->query("SHOW COLUMNS FROM `cc_shops` LIKE 'received_at'")->fetch();
+if (!$hasColumn) {
+    $sql = file_get_contents('database/migrate_cc_datareon_shops_push.sql');
+    if ($sql === false) {
+        throw new RuntimeException('Не найден SQL миграции.');
+    }
+    $pdo->exec($sql);
+    echo "Миграция выполнена\n";
+} else {
+    echo "Миграция уже выполнена\n";
 }
-$pdo->exec($sql);
-$pdo->query('SELECT `received_at`,`source_updated_at`,`payload_json` FROM `cc_shops` LIMIT 0');
-echo "cc_shops OK\n";
+$pdo->query('SELECT `shops_sap_id`,`shop_name`,`openhours_json`,`source_updated_at`,`payload_json`,`received_at` FROM `cc_shops` LIMIT 0');
+echo "Схема CC проверена\n";
 PHP
 ```
 
@@ -46,7 +64,12 @@ php -l site/datareon_shops_lib.php
 php -l site/bridge_api.php
 php tests/datareon_shops_test.php
 rsync -vc site/datareon_shops.php site/datareon_shops_lib.php site/bridge_api.php /var/www/omniweb/
+test -f /var/www/omniweb/datareon_shops.php
+php -l /var/www/omniweb/datareon_shops.php
 ```
+
+Команда миграции меняет только структуру БД. До `rsync` URL приёма ещё не
+существует; до повторной отправки Datareon в таблице не появятся новые магазины.
 
 После каждого принятого сообщения новая строка видна в `cc_shops` с
 `received_at IS NOT NULL`. Существующие строки без этого признака не передаются

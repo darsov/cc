@@ -10,11 +10,24 @@ curl --connect-timeout 5 --max-time 10 -I https://omni.clz.ru/
 
 Локальный Unix-сокет недоступен пользователю `omniweb` (2002/13).
 Ручное подключение по TCP дошло до MariaDB, но пароль был отклонён (1045).
-Проверьте права через уже настроенное подключение PHP приложения без вывода пароля:
+Проверьте, где находится доступный CLI файл настроек, не выводя его содержимое:
 
 ```bash
-php -r 'require "site/bootstrap.php"; $pdo=ccDb(); echo "DB user: ", $pdo->query("SELECT CURRENT_USER()")->fetchColumn(), PHP_EOL; foreach ($pdo->query("SHOW GRANTS")->fetchAll(PDO::FETCH_COLUMN) as $grant) echo preg_replace("/\\s+IDENTIFIED\\b.*$/i", "", $grant), PHP_EOL;'
+for f in /etc/omniweb/database.php /var/www/omniweb/.database.php "$PWD/site/.database.php"; do
+    if test -r "$f"; then echo "READABLE $f"; else echo "NO $f"; fi
+done
 ```
+
+Конфигурация рядом с опубликованным PHP может отсутствовать в checkout.
+Для проверки доступа из консоли используйте `bootstrap.php` опубликованного CC:
+
+```bash
+php -r 'require "/var/www/omniweb/bootstrap.php"; try { $pdo=ccDb(); echo "DB user: ", $pdo->query("SELECT CURRENT_USER()")->fetchColumn(), PHP_EOL; foreach ($pdo->query("SHOW GRANTS")->fetchAll(PDO::FETCH_COLUMN) as $grant) echo preg_replace("/\\s+IDENTIFIED\\b.*$/i", "", $grant), PHP_EOL; } catch (Throwable $e) { echo "DB_ERROR code=", $e->getCode(), PHP_EOL; }'
+```
+
+Если веб-сервер получает пароль только через своё окружение, CLI всё равно
+не сможет подключиться. Тогда не пытайтесь угадывать пароль: потребуется
+администратор MariaDB для выполнения SQL вручную.
 
 Если `CREATE` для `omniweb` отсутствует, администратор MariaDB выполняет
 `database/migrate_cc_card_tools.sql` в базе `omniweb` со своей учётной записью.

@@ -16,7 +16,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         $card = ccCardNumber($card);
         $organizationId = null;
         $datareonError = null;
-        try { $organizationId = ccFindGiftCardOrganization($card); }
+        try {
+            $organizationId = ccFindGiftCardOrganization($card);
+            ccStoreCardOrganizations(ccDb(), [$card => ['organization_id' => $organizationId]]);
+        }
         catch (Throwable $e) { $datareonError = $e->getMessage(); }
         $mindbox = null;
         $mindboxError = null;

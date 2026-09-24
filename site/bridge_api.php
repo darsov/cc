@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/card_refund_lib.php';
 require_once __DIR__ . '/card_services.php';
+require_once __DIR__ . '/datareon_shops_lib.php';
 
 header('Content-Type: application/json; charset=UTF-8');
 header('X-Content-Type-Options: nosniff');
@@ -194,47 +195,6 @@ function ccBridgeLookupOrganizations(PDO $pdo, array $payload): array
     return ['organizations' => $results];
 }
 
-function ccBridgeSyncShops(PDO $pdo, array $payload): array
-{
-    $shops = $payload['shops'] ?? null;
-    if (!is_array($shops) || count($shops) > 5000) {
-        throw new InvalidArgumentException('Некорректный список магазинов.');
-    }
-    $upsertShop = $pdo->prepare('INSERT INTO `cc_shops`
-        (`datareon_shop_id`,`shop_id`,`organization_id`,`organization_name`,`synced_at`)
-        VALUES (:datareon_shop_id,:shop_id,:organization_id,:organization_name,NOW())
-        ON DUPLICATE KEY UPDATE `shop_id`=VALUES(`shop_id`),
-            `organization_id`=VALUES(`organization_id`),
-            `organization_name`=VALUES(`organization_name`),`synced_at`=NOW()');
-    $upsertOrg = $pdo->prepare('INSERT INTO `cc_organizations` (`id`,`name`)
-        VALUES (:id,:name) ON DUPLICATE KEY UPDATE `name`=VALUES(`name`)');
-    $pdo->beginTransaction();
-    try {
-        foreach ($shops as $shop) {
-            if (!is_array($shop)) throw new InvalidArgumentException('Некорректный магазин.');
-            $id = trim((string)($shop['datareon_shop_id'] ?? ''));
-            $shopId = trim((string)($shop['shop_id'] ?? ''));
-            $orgId = strtolower(trim((string)($shop['organization_id'] ?? '')));
-            $orgName = trim((string)($shop['organization_name'] ?? ''));
-            if ($id === '' || strlen($id) > 255 || strlen($shopId) > 255
-                || strlen($orgName) > 255 || ($orgId !== ''
-                && !preg_match('/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/D', $orgId))) {
-                throw new InvalidArgumentException('Некорректные данные магазина.');
-            }
-            $upsertShop->execute([
-                'datareon_shop_id' => $id, 'shop_id' => $shopId ?: null,
-                'organization_id' => $orgId ?: null, 'organization_name' => $orgName ?: null,
-            ]);
-            if ($orgId !== '' && $orgName !== '') $upsertOrg->execute(['id' => $orgId, 'name' => $orgName]);
-        }
-        $pdo->commit();
-    } catch (Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
-        throw $e;
-    }
-    return ['synced' => count($shops)];
-}
-
 function ccBridgeSyncMindbox(PDO $pdo, array $payload): array
 {
     $brands = $payload['brands'] ?? null;
@@ -275,8 +235,10 @@ try {
     if ($action === 'lookup_organizations' && $method === 'POST') {
         ccBridgeReply(200, ['ok' => true] + ccBridgeLookupOrganizations($pdo, ccBridgeJsonBody($body)));
     }
-    if ($action === 'sync_shops' && $method === 'POST') {
-        ccBridgeReply(200, ['ok' => true] + ccBridgeSyncShops($pdo, ccBridgeJsonBody($body)));
+    if ($action === 'shops' && $method === 'GET') {
+        ccBridgeReply(200, ['ok' => true] + ccDatareonShopPage(
+            $pdo, trim((string)($_GET['after'] ?? '')), (int)($_GET['limit'] ?? 500)
+        ));
     }
     if ($action === 'sync_mindbox' && $method === 'POST') {
         ccBridgeReply(200, ['ok' => true] + ccBridgeSyncMindbox($pdo, ccBridgeJsonBody($body)));

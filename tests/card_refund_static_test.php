@@ -9,6 +9,8 @@ $required = [
     'site/card_refund_lib.php',
     'site/bootstrap.php',
     'site/bridge_api.php',
+    'site/datareon_shops.php',
+    'site/datareon_shops_lib.php',
     'site/login.php',
     'site/logout.php',
     'database/migrate_cc_portal.sql',

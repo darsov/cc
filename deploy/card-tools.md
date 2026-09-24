@@ -13,7 +13,7 @@ curl --connect-timeout 5 --max-time 10 -I https://omni.clz.ru/
 Проверьте права через уже настроенное подключение PHP приложения без вывода пароля:
 
 ```bash
-php -r 'require "site/bootstrap.php"; $pdo=ccDb(); echo "DB user: ", $pdo->query("SELECT CURRENT_USER()")->fetchColumn(), PHP_EOL; foreach ($pdo->query("SHOW GRANTS")->fetchAll(PDO::FETCH_COLUMN) as $grant) echo $grant, PHP_EOL;'
+php -r 'require "site/bootstrap.php"; $pdo=ccDb(); echo "DB user: ", $pdo->query("SELECT CURRENT_USER()")->fetchColumn(), PHP_EOL; foreach ($pdo->query("SHOW GRANTS")->fetchAll(PDO::FETCH_COLUMN) as $grant) echo preg_replace("/\\s+IDENTIFIED\\b.*$/i", "", $grant), PHP_EOL;'
 ```
 
 Если `CREATE` для `omniweb` отсутствует, администратор MariaDB выполняет

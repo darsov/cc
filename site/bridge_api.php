@@ -235,6 +235,13 @@ function ccBridgeSyncShops(PDO $pdo, array $payload): array
     return ['synced' => count($shops)];
 }
 
+function ccBridgeSyncMindbox(PDO $pdo, array $payload): array
+{
+    $brands = $payload['brands'] ?? null;
+    if (!is_array($brands)) throw new InvalidArgumentException('Не указаны настройки Mindbox.');
+    return ['synced' => ccStoreMindboxSettings($pdo, $brands)];
+}
+
 $body = file_get_contents('php://input');
 if (!is_string($body)) {
     $body = '';
@@ -270,6 +277,9 @@ try {
     }
     if ($action === 'sync_shops' && $method === 'POST') {
         ccBridgeReply(200, ['ok' => true] + ccBridgeSyncShops($pdo, ccBridgeJsonBody($body)));
+    }
+    if ($action === 'sync_mindbox' && $method === 'POST') {
+        ccBridgeReply(200, ['ok' => true] + ccBridgeSyncMindbox($pdo, ccBridgeJsonBody($body)));
     }
     ccBridgeReply(405, ['ok' => false, 'error' => 'Неизвестное действие или метод.']);
 } catch (JsonException | InvalidArgumentException $e) {

@@ -43,7 +43,7 @@ php tests/datareon_shops_test.php
 и хранятся в базе КЦ с шифрованием ключей. Проверка организации обращается с КЦ
 напрямую к production Datareon. Пользователи и забор возвратов также
 синхронизируются по направлению OMNI → КЦ. Магазины Datareon поступают на КЦ
-через `POST /datareon_shops.php`; OMNI читает их через подписанный bridge.
+через `POST /datareon.php?type=shops`; OMNI читает их через подписанный bridge.
 Конфигурация хранится вне web-root:
 
 - `/etc/omniweb/database.php` — подключение к MariaDB;

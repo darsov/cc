@@ -8,16 +8,16 @@
 curl --connect-timeout 5 --max-time 10 -I https://omni.clz.ru/
 ```
 
-Проверьте права на создание таблиц в MariaDB:
+Локальный Unix-сокет недоступен пользователю `omniweb` (ошибка 2002/13). Подключайтесь по TCP к `127.0.0.1:3306` и проверьте права на создание таблиц в MariaDB:
 
 ```bash
-mariadb -u omniweb -p omniweb -e 'SHOW GRANTS;'
+mariadb --protocol=TCP -h 127.0.0.1 -P 3306 -u omniweb -p omniweb -e 'SHOW GRANTS;'
 ```
 
 Если есть `CREATE`, выполните SQL до копирования PHP:
 
 ```bash
-mariadb -u omniweb -p omniweb < database/migrate_cc_card_tools.sql
+mariadb --protocol=TCP -h 127.0.0.1 -P 3306 -u omniweb -p omniweb < database/migrate_cc_card_tools.sql
 ```
 
 Если `CREATE` отсутствует, передайте администратору БД файл

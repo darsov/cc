@@ -11,6 +11,7 @@ function ccEnsureCardToolsSchema(PDO $pdo): void
     try {
         $pdo->query('SELECT `id`,`name` FROM `cc_organizations` LIMIT 0');
         $pdo->query('SELECT `datareon_shop_id`,`organization_id` FROM `cc_shops` LIMIT 0');
+        $pdo->query('SELECT `card_number`,`organization_id`,`checked_at` FROM `cc_card_organizations` LIMIT 0');
         $pdo->query('SELECT `id`,`user_id`,`action`,`card_number`,`outcome` FROM `cc_user_actions` LIMIT 0');
     } catch (Throwable $e) {
         throw new RuntimeException('Таблицы карт КЦ не готовы. Выполните database/migrate_cc_card_tools.sql.', 0, $e);
@@ -31,6 +32,21 @@ function ccCardOrganization(PDO $pdo, string $organizationId): string
     $stmt = $pdo->prepare('SELECT `name` FROM `cc_organizations` WHERE `id` = :id LIMIT 1');
     $stmt->execute(['id' => $organizationId]);
     return trim((string)($stmt->fetchColumn() ?: ''));
+}
+
+/** Keep successful Datareon responses (including an empty organization) in CC. */
+function ccStoreCardOrganizations(PDO $pdo, array $results): void
+{
+    $stmt = $pdo->prepare('INSERT INTO `cc_card_organizations`
+        (`card_number`,`organization_id`,`checked_at`) VALUES (:card_number,:organization_id,NOW())
+        ON DUPLICATE KEY UPDATE `organization_id`=VALUES(`organization_id`),`checked_at`=NOW()');
+    foreach ($results as $number => $result) {
+        if (!is_array($result) || !array_key_exists('organization_id', $result)) continue;
+        $stmt->execute([
+            'card_number' => ccCardNumber((string)$number),
+            'organization_id' => $result['organization_id'],
+        ]);
+    }
 }
 
 /**

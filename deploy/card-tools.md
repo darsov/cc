@@ -52,7 +52,7 @@ PHP
 find site tests -name '*.php' -print0 | xargs -0 -n1 php -l
 php tests/card_refund_static_test.php
 test -w /var/www/omniweb
-rsync -av --exclude='.database.php' --exclude='.bridge.php' site/ /var/www/omniweb/
+rsync -rvc --exclude='.database.php' --exclude='.bridge.php' site/ /var/www/omniweb/
 ```
 
 Если `test -w` не проходит, владелец webroot должен предоставить пользователю
@@ -61,3 +61,23 @@ rsync -av --exclude='.database.php' --exclude='.bridge.php' site/ /var/www/omniw
 Проверка `/giftcardsFind` производится на КЦ. Все запрошенные через
 `lookup_organizations` номера (включая заблокированные в OMNI) сохраняются
 в таблицу `cc_card_organizations`. Пробный номер: `2003056862`.
+
+## Проверка связи с OMNI для баланса
+
+CC обращается к `https://omni.clz.ru/cc_gift_card_api.php` по HTTPS,
+подписывая запрос существующим `CC_OMNI_BRIDGE_SECRET` из
+`/var/www/omniweb/.bridge.php` или `/etc/omniweb/bridge.php`.
+Секреты Mindbox остаются в OMNI. Сообщение `Connection timed out after 4001 milliseconds`
+означает отсутствие TCP-соединения с OMNI; до проверки подписи дело не дошло.
+
+Из консоли CC проверьте без токенов:
+
+```bash
+getent ahostsv4 omni.clz.ru
+curl --connect-timeout 4 --max-time 8 -sS -o /dev/null \\
+  -w 'OMNI HTTP %{http_code}; IP %{remote_ip}; connect %{time_connect}s\\n' \\
+  https://omni.clz.ru/cc_gift_card_api.php
+```
+
+Ответ HTTP 405 на GET означает, что HTTPS-маршрут работает. Код 000 и таймаут
+означают, что нужно наладить маршрут или внутренний адрес до OMNI.

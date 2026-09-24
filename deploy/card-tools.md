@@ -2,10 +2,12 @@
 
 На сервере КЦ работайте из `~/cc-src` под `omniweb`. Права `sudo` не нужны.
 
-Перед обновлением проверьте связь КЦ с OMNI для баланса Mindbox:
+Для баланса CC обращается прямо к Mindbox. Связь CC → OMNI не требуется.
+Проверьте доступность Mindbox с CC без отправки ключей:
 
 ```bash
-curl --connect-timeout 5 --max-time 10 -I https://omni.clz.ru/
+curl --connect-timeout 5 --max-time 10 -sS -o /dev/null \
+  -w 'Mindbox HTTP %{http_code}; IP %{remote_ip}\\n' https://api.mindbox.ru/v3/operations/sync
 ```
 
 Рабочий конфиг находится в `/var/www/omniweb/.database.php`;
@@ -48,6 +50,17 @@ PHP
 Миграция состоит из `CREATE TABLE IF NOT EXISTS` и повторяемой вставки
 организации. Если выполнение прервётся, её можно запустить повторно.
 
+Отдельная таблица для зашифрованных настроек Mindbox:
+
+```bash
+php -r 'require "/var/www/omniweb/bootstrap.php"; $db=ccDb(); if ($db->query("SELECT DATABASE()")->fetchColumn()!=="omniweb") throw new RuntimeException("Неверная база."); $db->exec(file_get_contents("database/migrate_cc_mindbox_settings.sql")); echo "cc_mindbox_settings OK\\n";'
+```
+
+После публикации CC и OMNI настройка четырёх брендов передаётся без ручного
+копирования ключей командой на OMNI: `php scripts/cc_sync.php --mindbox-only`.
+OMNI посылает настройки по подписанному HTTPS; CC хранит секреты зашифрованными
+ключом из существующего `.bridge.php`.
+
 ```bash
 find site tests -name '*.php' -print0 | xargs -0 -n1 php -l
 php tests/card_refund_static_test.php
@@ -62,22 +75,3 @@ rsync -rvc --exclude='.database.php' --exclude='.bridge.php' site/ /var/www/omni
 `lookup_organizations` номера (включая заблокированные в OMNI) сохраняются
 в таблицу `cc_card_organizations`. Пробный номер: `2003056862`.
 
-## Проверка связи с OMNI для баланса
-
-CC обращается к `https://omni.clz.ru/cc_gift_card_api.php` по HTTPS,
-подписывая запрос существующим `CC_OMNI_BRIDGE_SECRET` из
-`/var/www/omniweb/.bridge.php` или `/etc/omniweb/bridge.php`.
-Секреты Mindbox остаются в OMNI. Сообщение `Connection timed out after 4001 milliseconds`
-означает отсутствие TCP-соединения с OMNI; до проверки подписи дело не дошло.
-
-Из консоли CC проверьте без токенов:
-
-```bash
-getent ahostsv4 omni.clz.ru
-curl --connect-timeout 4 --max-time 8 -sS -o /dev/null \\
-  -w 'OMNI HTTP %{http_code}; IP %{remote_ip}; connect %{time_connect}s\\n' \\
-  https://omni.clz.ru/cc_gift_card_api.php
-```
-
-Ответ HTTP 405 на GET означает, что HTTPS-маршрут работает. Код 000 и таймаут
-означают, что нужно наладить маршрут или внутренний адрес до OMNI.

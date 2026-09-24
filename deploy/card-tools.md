@@ -1,30 +1,38 @@
 # Выкладка проверки карт и возвратов
 
-После обновления КЦ потребуется исходящее HTTPS-соединение КЦ → `omni.clz.ru`
-для подписанного запроса баланса Mindbox; КЦ обращается к Datareon напрямую.
-До выкладки с сервера КЦ проверьте `curl --connect-timeout 5 --max-time 10 -I https://omni.clz.ru/`.
-Если нет ответа по HTTPS, проверка баланса из КЦ не заработает: не выкладывайте
-`card_check.php` до настройки маршрута или смены архитектуры интеграции.
+На сервере КЦ работайте из `~/cc-src` под `omniweb`. Права `sudo` не нужны.
 
-SQL для MariaDB выполняется с правами создания таблиц **до** замены PHP-файлов:
+Перед обновлением проверьте связь КЦ с OMNI для баланса Mindbox:
 
 ```bash
-sudo mariadb --database=omniweb < database/migrate_cc_card_tools.sql
+curl --connect-timeout 5 --max-time 10 -I https://omni.clz.ru/
 ```
 
-Проверка файлов перед копированием:
+Проверьте права на создание таблиц в MariaDB:
+
+```bash
+mariadb -u omniweb -p omniweb -e 'SHOW GRANTS;'
+```
+
+Если есть `CREATE`, выполните SQL до копирования PHP:
+
+```bash
+mariadb -u omniweb -p omniweb < database/migrate_cc_card_tools.sql
+```
+
+Если `CREATE` отсутствует, передайте администратору БД файл
+`database/migrate_cc_card_tools.sql` для выполнения в базе `omniweb`.
 
 ```bash
 find site tests -name '*.php' -print0 | xargs -0 -n1 php -l
 php tests/card_refund_static_test.php
+test -w /var/www/omniweb
+rsync -av --exclude='.database.php' --exclude='.bridge.php' site/ /var/www/omniweb/
 ```
 
-Размещение публичных файлов (из корня checkout КЦ):
+Если `test -w` не проходит, владелец webroot должен предоставить пользователю
+`omniweb` права записи или опубликовать проверенные файлы.
 
-```bash
-sudo rsync -av --exclude='.database.php' --exclude='.bridge.php' site/ /var/www/omniweb/
-```
-
-Проверить HTTP-страницы с рабочей станции в офисной сети и карту `2003056862`.
-При ошибке Datareon строка загрузки отклоняется, для иных организаций выводится
-«Карта выпущена другой организацией».
+Проверка `/giftcardsFind` производится на КЦ. Все запрошенные через
+`lookup_organizations` номера (включая заблокированные в OMNI) сохраняются
+в таблицу `cc_card_organizations`. Пробный номер: `2003056862`.

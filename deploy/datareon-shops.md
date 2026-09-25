@@ -1,0 +1,116 @@
+# Приём магазинов Datareon
+
+Datareon отправляет один магазин на `https://cc.clz.ru/datareon.php?type=shops` методом
+`POST`, заголовок `Content-Type: application/json`. На первом этапе подпись и
+ключ для этого входящего метода не требуются. Тело:
+
+`datareon.php` — общий входящий маршрут. При добавлении цен или товаров здесь
+появятся отдельные обработчики для `type=prices` и `type=catalogue` со своими
+проверками и таблицами. Сейчас доступен только `type=shops`; незнакомый тип
+отвечает `404` и ничего не сохраняет. Старый адрес `datareon_shops.php` пока
+передаёт запрос в тот же обработчик магазинов для плавного перехода.
+
+```json
+{"shops":{"id":"e09e3db3-b7db-11f1-8fa6-d92d477b5769","shopId":"DII8","sapId":"DII8","updatedAt":"2026-09-24T05:50:47.493Z","name":"DII8 DI.CE PARTIAL RETURNS","organization":"КАЛЦРУ ООО","organizationId":"75fabd9c-421e-11f0-a6e2-a7bd3aad63e9","openhours":[]}}
+```
+
+Обязательны UUID `id`, код `shopId` либо `sapId` и `updatedAt` с часовым поясом.
+Ответ `200` содержит `{"ok":true,"accepted":true,"datareon_shop_id":"..."}`.
+Повторное старое обновление отвечает `200` с `accepted:false` и `reason:older_update`.
+Ошибочное тело отвечает `422`, ошибка базы `500`. В отдельном запросе передаётся
+один магазин. После публикации попросите Datareon повторно отправить весь справочник.
+
+## Выкладка на КЦ
+
+Открытый PR не обновляет файлы на сервере. На КЦ нет phpMyAdmin. Под
+пользователем `omniweb`, без `sudo`, сначала получите код PR в `~/cc-src`:
+
+```bash
+set -e
+cd ~/cc-src
+test -z "$(git status --porcelain)"
+git fetch origin codex/card-tools-org-check-20260924
+git switch --detach FETCH_HEAD
+test -f database/migrate_cc_datareon_shops_push.sql
+test -f site/datareon.php
+```
+
+Затем выполните SQL через уже проверенный PHP PDO приложения. Миграция
+расширяет созданную таблицу `cc_shops`:
+
+```bash
+cd ~/cc-src
+php <<'PHP'
+<?php
+require '/var/www/omniweb/bootstrap.php';
+$pdo = ccDb();
+if ($pdo->query('SELECT DATABASE()')->fetchColumn() !== 'omniweb') {
+    throw new RuntimeException('Подключена не база omniweb.');
+}
+$hasColumn = $pdo->query("SHOW COLUMNS FROM `cc_shops` LIKE 'received_at'")->fetch();
+if (!$hasColumn) {
+    $sql = file_get_contents('database/migrate_cc_datareon_shops_push.sql');
+    if ($sql === false) {
+        throw new RuntimeException('Не найден SQL миграции.');
+    }
+    $pdo->exec($sql);
+    echo "Миграция выполнена\n";
+} else {
+    echo "Миграция уже выполнена\n";
+}
+$pdo->query('SELECT `shops_sap_id`,`shop_name`,`openhours_json`,`source_updated_at`,`payload_json`,`received_at` FROM `cc_shops` LIMIT 0');
+echo "Схема CC проверена\n";
+PHP
+```
+
+```bash
+cd ~/cc-src
+php -l site/datareon.php
+php -l site/datareon_shops.php
+php -l site/datareon_shops_lib.php
+php -l site/bridge_api.php
+php tests/datareon_shops_test.php
+rsync -vc site/datareon.php site/datareon_shops.php site/datareon_shops_lib.php site/bridge_api.php /var/www/omniweb/
+test -f /var/www/omniweb/datareon.php
+php -l /var/www/omniweb/datareon.php
+```
+
+Команда миграции меняет только структуру БД. До `rsync` новый URL приёма ещё не
+существует; до повторной отправки Datareon в таблице не появятся новые магазины.
+
+После публикации проверьте на КЦ маршрутизацию, не создавая тестовых магазинов:
+
+```bash
+curl -sS -i --resolve cc.clz.ru:443:127.0.0.1 'https://cc.clz.ru/datareon.php?type=shops'
+curl -sS -i --resolve cc.clz.ru:443:127.0.0.1 -H 'Content-Type: application/json' \
+    --data '{"shops":{}}' 'https://cc.clz.ru/datareon.php?type=shops'
+curl -sS -i --resolve cc.clz.ru:443:127.0.0.1 -H 'Content-Type: application/json' \
+    --data '{}' 'https://cc.clz.ru/datareon.php?type=prices'
+```
+
+Ожидаются соответственно HTTP `405`, `422`, `404`. Это проверяет маршрут и
+валидацию. Сохранение в БД подтверждает первый настоящий POST от Datareon.
+
+После каждого принятого сообщения новая строка видна в `cc_shops` с
+`received_at IS NOT NULL`. Существующие строки без этого признака не передаются
+в OMNI как новый поток. OMNI запрашивает страницы через действующую подпись
+`GET /bridge_api.php?action=shops&after=...&limit=500`.
+
+Сверка на КЦ после повторной отправки всего справочника Datareon, тем же PDO:
+
+```bash
+php <<'PHP'
+<?php
+require '/var/www/omniweb/bootstrap.php';
+$pdo = ccDb();
+echo 'Получено: ' . $pdo->query('SELECT COUNT(*) FROM `cc_shops` WHERE `received_at` IS NOT NULL')->fetchColumn() . PHP_EOL;
+$stmt = $pdo->prepare('SELECT `datareon_shop_id`,`shop_id`,`shops_sap_id`,`source_updated_at`,`received_at`
+    FROM `cc_shops` WHERE `received_at` IS NOT NULL AND (`shop_id`=:shop_code OR `shops_sap_id`=:sap_code)');
+$stmt->execute(['shop_code' => 'TH07', 'sap_code' => 'TH07']);
+foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+    echo json_encode($row, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL;
+}
+PHP
+```
+
+Не отправляйте проверочный POST с рабочим `shops.id`: он запишет или изменит запись.

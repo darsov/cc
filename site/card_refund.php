@@ -4,9 +4,15 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/card_refund_lib.php';
+require_once __DIR__ . '/card_services.php';
 
+header('X-CC-Refund-Revision: 20260925-queue-without-lookup');
 $currentUser = ccRequireAuth();
+$scriptNonce = base64_encode(random_bytes(16));
 ccApplyHtmlHeaders();
+header("Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; "
+    . "script-src 'self' 'nonce-" . $scriptNonce . "'; base-uri 'none'; "
+    . "form-action 'self'; frame-ancestors 'none'");
 
 function ccRefundEscape(string $value): string
 {
@@ -21,6 +27,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         if (!ccRefundVerifyCsrf($_POST['csrf_token'] ?? null)) {
             throw new RuntimeException('Сессия устарела. Обновите страницу и попробуйте снова.');
         }
+        ccEnsureCardToolsSchema(ccDb());
+        $manual = (string)($_POST['submission_type'] ?? '') === 'manual';
+        if ($manual) {
+            $records = [ccRefundManualRecord($_POST)];
+        } else {
         if (!isset($_FILES['refund_xlsx']) || !is_array($_FILES['refund_xlsx'])) {
             throw new RuntimeException('Выберите XLSX-файл.');
         }
@@ -45,9 +56,20 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         }
 
         $records = ccRefundReadXlsx($tmpName, (int)($file['size'] ?? 0));
+        }
         $result = ccRefundQueue(ccDb(), $records, (int)$currentUser['id']);
+        foreach ($result['rows'] as $row) {
+            ccLogAction(ccDb(), (int)$currentUser['id'], $manual ? 'refund_manual' : 'refund_upload',
+                (string)($row['card_number'] ?? ''),
+                implode('; ', (array)($row['details'] ?? [])) ?: (string)($row['label'] ?? ''));
+        }
     } catch (Throwable $e) {
         $error = $e->getMessage();
+        try {
+            ccLogAction(ccDb(), (int)$currentUser['id'],
+                (string)($_POST['submission_type'] ?? '') === 'manual' ? 'refund_manual' : 'refund_upload',
+                isset($_POST['card_number']) ? (string)$_POST['card_number'] : null, 'error');
+        } catch (Throwable $loggingError) { error_log('CC action log failed: ' . $loggingError->getMessage()); }
     }
 }
 ?>
@@ -58,7 +80,6 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex, nofollow">
     <title>Возврат подарочных сертификатов · КЦ</title>
-    <script src="card_refund.js" defer></script>
     <style>
         :root {
             color-scheme:light;
@@ -66,10 +87,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         }
         * { box-sizing:border-box; }
         body { min-height:100vh; margin:0; padding:2rem 1rem; color:#0f172a; background:#f8fafc; }
-        main { width:min(100%,72rem); margin:0 auto; }
-        nav { margin-bottom:1rem; display:flex; justify-content:flex-end; gap:1rem; align-items:center; }
-        nav form { display:inline; }
-        nav button { padding:0; background:none; color:#2563eb; font-weight:400; }
+        .cc-menu { margin-bottom:1rem; display:flex; justify-content:space-between; gap:1rem; align-items:center; flex-wrap:wrap; }
+        .cc-menu a { color:#2563eb; text-decoration:none; }
+        .cc-menu form { display:inline; }
+        .cc-menu button { padding:0; background:none; color:#2563eb; font-weight:400; }
         .panel {
             padding:2rem;
             border:1px solid #e2e8f0;
@@ -99,6 +120,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             background:#fff;
             color:#334155;
         }
+        .manual-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:1rem; }
+        .manual-grid label { display:grid; gap:.4rem; color:#475569; }
+        .manual-grid input { padding:.7rem; border:1px solid #94a3b8; border-radius:.6rem; width:100%; }
         button {
             justify-self:start;
             border:0;
@@ -132,15 +156,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             .panel { padding:1.25rem; }
         }
     </style>
+    <?php require __DIR__ . '/cc_layout.php'; ?>
 </head>
 <body>
-<main>
-    <nav>
-        <form method="post" action="logout.php">
-            <input type="hidden" name="csrf_token" value="<?= ccRefundEscape(ccCsrfToken()) ?>">
-            <button type="submit">Выйти</button>
-        </form>
-    </nav>
+<main class="cc-page">
+    <?php include __DIR__ . '/menu.php'; ?>
 
     <?php if ($error !== null): ?>
         <div class="message error"><?= ccRefundEscape($error) ?></div>
@@ -205,17 +225,62 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             <code>Телефон в формате 7XXXXXXXXXX</code>,
             <code>Электронная почта только xxx@xxx.xx</code>,
             <code>ФИО только русские буквы</code>,
-            <code>БИК 10 цифр</code>,
+            <code>БИК 9 цифр</code>,
             <code>РС 20 цифр</code>.
         </div>
+        <p>Укажите телефон или email. Если ФИО либо банковские реквизиты не заполнены, заявка будет отмечена как «Только блокировка». Колонки после РС игнорируются.</p>
 
         <form class="upload-form" method="post" enctype="multipart/form-data">
             <input type="hidden" name="csrf_token" value="<?= ccRefundEscape(ccRefundCsrfToken()) ?>">
+            <input type="hidden" name="submission_type" value="upload">
             <input type="hidden" name="MAX_FILE_SIZE" value="<?= CC_REFUND_MAX_FILE_BYTES ?>">
             <input id="refund-xlsx" type="file" name="refund_xlsx" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
             <button id="refund-submit" type="submit" disabled>Отправить в CLZ</button>
         </form>
+        <h2 style="margin-top:2rem">Ввести одно обращение вручную</h2>
+        <form id="refund-manual-form" class="upload-form" method="post">
+            <input type="hidden" name="csrf_token" value="<?= ccRefundEscape(ccRefundCsrfToken()) ?>">
+            <input type="hidden" name="submission_type" value="manual">
+            <div class="manual-grid">
+                <label>Номер карты<input name="card_number" inputmode="numeric" pattern="[0-9]{10}|[0-9]{20}" required maxlength="20"></label>
+                <label>Дата обращения<input name="client_contact_date" placeholder="ДД.ММ.ГГГГ"></label>
+                <label>Номер обращения<input name="request_number" maxlength="100"></label>
+                <label>Телефон<input name="customer_phone" placeholder="7XXXXXXXXXX" inputmode="tel"></label>
+                <label>Email<input name="customer_email" type="text" inputmode="email"></label>
+                <label>ФИО<input name="customer_full_name"></label>
+                <label>БИК<input name="bank_bic" inputmode="numeric"></label>
+                <label>Расчётный счёт<input name="bank_account" inputmode="numeric"></label>
+            </div>
+            <button id="refund-manual-submit" type="submit" disabled>Отправить в CLZ</button>
+        </form>
     </section>
 </main>
+<script nonce="<?= ccRefundEscape($scriptNonce) ?>">
+(() => {
+    'use strict';
+
+    const fileInput = document.getElementById('refund-xlsx');
+    const uploadButton = document.getElementById('refund-submit');
+    const manualForm = document.getElementById('refund-manual-form');
+    const manualButton = document.getElementById('refund-manual-submit');
+    if (!fileInput || !uploadButton || !manualForm || !manualButton) return;
+
+    const card = manualForm.elements.namedItem('card_number');
+    const phone = manualForm.elements.namedItem('customer_phone');
+    const email = manualForm.elements.namedItem('customer_email');
+    const refresh = () => {
+        uploadButton.disabled = !(fileInput.files && fileInput.files.length > 0);
+        manualButton.disabled = !card.value.trim()
+            || !(phone.value.trim() || email.value.trim())
+            || !manualForm.checkValidity();
+    };
+
+    fileInput.addEventListener('change', refresh);
+    manualForm.addEventListener('input', refresh);
+    manualForm.addEventListener('change', refresh);
+    window.addEventListener('pageshow', refresh);
+    refresh();
+})();
+</script>
 </body>
 </html>

@@ -9,8 +9,14 @@ $required = [
     'site/card_refund_lib.php',
     'site/bootstrap.php',
     'site/bridge_api.php',
+    'site/datareon.php',
+    'site/datareon_shops.php',
+    'site/datareon_shops_lib.php',
     'site/login.php',
     'site/logout.php',
+    'site/menu.php',
+    'site/shops.php',
+    'site/shops/index.php',
     'database/migrate_cc_portal.sql',
     'deploy/database.php.example',
     'deploy/bridge.php.example',
@@ -25,6 +31,9 @@ foreach ($required as $file) {
 $page = file_get_contents($root . '/site/card_refund.php');
 $index = file_get_contents($root . '/site/index.php');
 $login = file_get_contents($root . '/site/login.php');
+$shopsPage = file_get_contents($root . '/site/shops.php');
+$shopsRoute = file_get_contents($root . '/site/shops/index.php');
+$menu = file_get_contents($root . '/site/menu.php');
 $refundScript = file_get_contents($root . '/site/card_refund.js');
 $library = file_get_contents($root . '/site/card_refund_lib.php');
 $bridge = file_get_contents($root . '/site/bridge_api.php');
@@ -42,7 +51,10 @@ $checks = [
     [str_contains($page, 'Результат загрузки'), 'Per-row result table is missing.'],
     [!str_contains($page, 'Они попадут в защищённую очередь'), 'Internal queue text is still visible.'],
     [!str_contains($page, 'Сам XLSX не сохраняется'), 'Technical XLSX note is still visible.'],
-    [str_contains($index, "Location: card_refund.php"), 'Main CC redirect is missing.'],
+    [str_contains($index, "Location: /login.php"), 'Main CC redirect to login is missing.'],
+    [str_contains($shopsPage, 'ccRequireAuth()'), 'Shops page authentication is missing.'],
+    [str_contains($shopsRoute, "'/shops.php'"), 'Short shops route is missing.'],
+    [str_contains($menu, '/shops/'), 'Shops menu link is missing.'],
     [str_contains($login, "Location: card_refund.php"), 'Login redirect to refund upload is missing.'],
     [!str_contains($index, 'КЦ запущен'), 'Legacy CC splash is still visible.'],
     [str_contains($login, 'color-scheme:light'), 'Login page is not light.'],
@@ -53,7 +65,8 @@ $checks = [
     [str_contains($library, "(?:\\d{10}|\\d{20})"), 'Gift card length validation is missing.'],
     [str_contains($library, "'customer_phone'"), 'Customer phone support is missing.'],
     [str_contains($library, "'customer_email'"), 'Customer email support is missing.'],
-    [str_contains($page, 'БИК 10 цифр'), 'The new 10-digit BIC format hint is missing.'],
+    [str_contains($page, 'БИК 9 цифр'), 'The 9-digit BIC format hint is missing.'],
+    [!str_contains($library, 'ccFindGiftCardOrganizationsBatch'), 'Refund upload still waits for Datareon.'],
     [str_contains($library, 'Загружено с замечаниями'), 'Partial row acceptance is missing.'],
     [str_contains($library, "(int)(\$rowNode['r']"), 'Exact XLSX row numbers are missing.'],
     [str_contains($bridge, 'ccBridgeVerify'), 'Bridge authentication is missing.'],
@@ -120,6 +133,11 @@ if ($invalidPhone !== '' || $invalidPhoneIssue === null) {
     throw new RuntimeException('An invalid customer phone was accepted.');
 }
 
+[$spacedPhone, $spacedPhoneIssue] = ccRefundOptionalPhoneValue('7 999 123 45 67');
+if ($spacedPhone !== '79991234567' || $spacedPhoneIssue !== null) {
+    throw new RuntimeException('Spaces in a valid phone were not removed.');
+}
+
 [$validEmail, $validEmailIssue] = ccRefundOptionalEmailValue('User@example.ru');
 if ($validEmail !== 'user@example.ru' || $validEmailIssue !== null) {
     throw new RuntimeException('A valid customer email was rejected.');
@@ -130,9 +148,90 @@ if ($invalidEmail !== '' || $invalidEmailIssue === null) {
     throw new RuntimeException('An invalid customer email was accepted.');
 }
 
-[$validBic, $validBicIssue] = ccRefundOptionalDigitsValue('1234567890', 10, 'bad');
-if ($validBic !== '1234567890' || $validBicIssue !== null) {
-    throw new RuntimeException('A valid 10-digit BIC was rejected.');
+[$validBic, $validBicIssue] = ccRefundOptionalDigitsValue('044 525 225', 9, 'bad');
+if ($validBic !== '044525225' || $validBicIssue !== null) {
+    throw new RuntimeException('A valid 9-digit BIC was rejected.');
+}
+[, $invalidBicIssue] = ccRefundOptionalDigitsValue('0445252251', 9, 'bad');
+if ($invalidBicIssue === null) {
+    throw new RuntimeException('A 10-digit BIC was accepted.');
+}
+
+$manual = ['card_number' => '1234567890'];
+foreach ([['customer_phone' => '79991234567'], ['customer_email' => 'user@example.ru']] as $contact) {
+    $record = ccRefundManualRecord($manual + $contact);
+    if (!ccRefundIsBlockOnly($record)) {
+        throw new RuntimeException('An incomplete payment request must be block only.');
+    }
+}
+try {
+    ccRefundManualRecord($manual);
+    throw new RuntimeException('A request without phone or email was accepted.');
+} catch (InvalidArgumentException $error) {
+    if (!str_contains($error->getMessage(), 'Укажите телефон или email.')) {
+        throw $error;
+    }
+}
+
+$complete = ccRefundManualRecord($manual + [
+    'customer_phone' => '79991234567', 'customer_full_name' => 'Иванов Иван',
+    'bank_bic' => '044525225', 'bank_account' => '12345678901234567890',
+]);
+if (ccRefundIsBlockOnly($complete)) {
+    throw new RuntimeException('Complete bank details were marked as block only.');
+}
+
+$withBadEmail = ccRefundManualRecord($manual + [
+    'customer_phone' => '7 999 123 45 67', 'customer_email' => 'не указана',
+    'customer_full_name' => 'Иванов Иван', 'bank_bic' => '044525225',
+    'bank_account' => '1234 5678 9012 3456 7890',
+]);
+if ($withBadEmail['customer_phone'] !== '79991234567' || $withBadEmail['customer_email'] !== ''
+    || $withBadEmail['bank_account'] !== '12345678901234567890'
+    || ccRefundIsBlockOnly($withBadEmail)) {
+    throw new RuntimeException('Manual phone and bank-account normalization or email fallback failed.');
+}
+
+$xlsxPath = tempnam(sys_get_temp_dir(), 'cc-refund-');
+if ($xlsxPath === false) throw new RuntimeException('Cannot create temporary XLSX.');
+try {
+    $zip = new ZipArchive();
+    if ($zip->open($xlsxPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+        throw new RuntimeException('Cannot open temporary XLSX.');
+    }
+    $xml = '<?xml version="1.0" encoding="UTF-8"?><worksheet><sheetData>'
+        . '<row r="1"><c r="A1" t="inlineStr"><is><t>Номер карты</t></is></c>'
+        . '<c r="D1" t="inlineStr"><is><t>Телефон</t></is></c>'
+        . '<c r="E1" t="inlineStr"><is><t>Email</t></is></c>'
+        . '<c r="F1" t="inlineStr"><is><t>ФИО</t></is></c>'
+        . '<c r="G1" t="inlineStr"><is><t>БИК</t></is></c>'
+        . '<c r="H1" t="inlineStr"><is><t>РС</t></is></c>'
+        . '<c r="I1" t="inlineStr"><is><t>ФИО</t></is></c></row>'
+        . '<row r="2"><c r="A2" t="inlineStr"><is><t>1234567890</t></is></c>'
+        . '<c r="D2" t="inlineStr"><is><t>7 999 123 45 67</t></is></c>'
+        . '<c r="E2" t="inlineStr"><is><t>не указана</t></is></c>'
+        . '<c r="F2" t="inlineStr"><is><t>Иванов Иван</t></is></c>'
+        . '<c r="G2" t="inlineStr"><is><t>044525225</t></is></c>'
+        . '<c r="H2" t="inlineStr"><is><t>1234 5678 9012 3456 7890</t></is></c>'
+        . '<c r="I2" t="inlineStr"><is><t>John Smith</t></is></c></row>'
+        . '<row r="3"><c r="A3" t="inlineStr"><is><t>12345678901234567890</t></is></c>'
+        . '<c r="I3" t="inlineStr"><is><t>Заметка</t></is></c></row>'
+        . '</sheetData></worksheet>';
+    $zip->addFromString('xl/worksheets/sheet1.xml', $xml);
+    $zip->close();
+    $records = ccRefundReadXlsx($xlsxPath, (int)filesize($xlsxPath));
+    if (count($records) !== 2 || $records[0]['customer_full_name'] !== 'Иванов Иван'
+        || $records[0]['customer_phone'] !== '79991234567'
+        || $records[0]['customer_email'] !== ''
+        || $records[0]['bank_bic'] !== '044525225'
+        || $records[0]['bank_account'] !== '12345678901234567890'
+        || $records[0]['_rejected'] || $records[0]['_issues']
+        || !$records[1]['_rejected']
+        || !in_array('Укажите телефон или email.', $records[1]['_issues'], true)) {
+        throw new RuntimeException('XLSX trailing columns or contact rule were handled incorrectly.');
+    }
+} finally {
+    unlink($xlsxPath);
 }
 
 echo "OK\n";

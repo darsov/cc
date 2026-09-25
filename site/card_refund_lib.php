@@ -173,7 +173,7 @@ function ccRefundOptionalDateValue(string $value, bool $numeric): array
 
 function ccRefundOptionalDigitsValue(string $value, int $length, string $errorMessage): array
 {
-    $value = ccRefundNormalizeExcelInteger($value);
+    $value = ccRefundNormalizeExcelInteger(preg_replace('/[\s\p{Z}]+/u', '', $value) ?? $value);
     if ($value === '') {
         return ['', null];
     }
@@ -198,7 +198,7 @@ function ccRefundOptionalFullNameValue(string $value): array
 
 function ccRefundOptionalPhoneValue(string $value): array
 {
-    $value = ccRefundNormalizeExcelInteger($value);
+    $value = ccRefundNormalizeExcelInteger(preg_replace('/[\s\p{Z}]+/u', '', $value) ?? $value);
     if ($value === '') {
         return ['', null];
     }
@@ -220,6 +220,18 @@ function ccRefundOptionalEmailValue(string $value): array
         return ['', 'Неверный формат электронной почты (ожидается xxx@xxx.xx).'];
     }
     return [$value, null];
+}
+
+function ccRefundContactIssue(string $phone, string $email): ?string
+{
+    return $phone === '' && $email === '' ? 'Укажите телефон или email.' : null;
+}
+
+function ccRefundIsBlockOnly(array $record): bool
+{
+    return trim((string)($record['customer_full_name'] ?? '')) === ''
+        || trim((string)($record['bank_bic'] ?? '')) === ''
+        || trim((string)($record['bank_account'] ?? '')) === '';
 }
 
 function ccRefundReadXlsx(string $path, int $fileSize): array
@@ -264,7 +276,7 @@ function ccRefundReadXlsx(string $path, int $fileSize): array
         'customer_phone' => ['телефон', 'телефон в формате 7xxxxxxxxxx'],
         'customer_email' => ['email', 'e mail', 'электронная почта', 'электронная почта только xxx xxx xx'],
         'customer_full_name' => ['фио', 'ф и о', 'фио только русские буквы'],
-        'bank_bic' => ['бик', 'бик 10 цифр'],
+        'bank_bic' => ['бик', 'бик 9 цифр', 'бик 10 цифр'],
         'bank_account' => [
             'рс', 'р с', 'рс 20 цифр',
             'расчетный счет', 'рассчетный счет', 'расчетный счёт', 'рассчетный счёт',
@@ -279,11 +291,21 @@ function ccRefundReadXlsx(string $path, int $fileSize): array
 
     $header = array_shift($rows);
     $headerRow = is_array($header['cells'] ?? null) ? $header['cells'] : [];
+    // Anything after the first bank account column is a free-form note, not request data.
+    $lastColumn = 7;
+    foreach ($headerRow as $index => $cell) {
+        if (in_array(ccRefundNormalizeHeader((string)($cell['value'] ?? '')),
+            $normalizedAliases['bank_account'], true)) {
+            $lastColumn = (int)$index;
+            break;
+        }
+    }
     $columns = [];
     foreach ($headerRow as $index => $header) {
+        if ((int)$index > $lastColumn) continue;
         $normalized = ccRefundNormalizeHeader((string)($header['value'] ?? ''));
         foreach ($normalizedAliases as $field => $fieldAliases) {
-            if (in_array($normalized, $fieldAliases, true)) {
+            if (!isset($columns[$field]) && in_array($normalized, $fieldAliases, true)) {
                 $columns[$field] = (int)$index;
             }
         }
@@ -321,10 +343,12 @@ function ccRefundReadXlsx(string $path, int $fileSize): array
         [$customerFullName, $fullNameIssue] = ccRefundOptionalFullNameValue($values['customer_full_name']);
         [$customerPhone, $phoneIssue] = ccRefundOptionalPhoneValue($values['customer_phone']);
         [$customerEmail, $emailIssue] = ccRefundOptionalEmailValue($values['customer_email']);
+        if ($customerPhone !== '' && $emailIssue !== null) $emailIssue = null;
+        $contactIssue = ccRefundContactIssue($customerPhone, $customerEmail);
         [$bankBic, $bicIssue] = ccRefundOptionalDigitsValue(
             $values['bank_bic'],
-            10,
-            'Неверный формат БИК (ожидается 10 цифр).'
+            9,
+            'Неверный формат БИК (ожидается 9 цифр).'
         );
         [$bankAccount, $accountIssue] = ccRefundOptionalDigitsValue(
             $values['bank_account'],
@@ -345,6 +369,7 @@ function ccRefundReadXlsx(string $path, int $fileSize): array
             $requestIssue,
             $phoneIssue,
             $emailIssue,
+            $contactIssue,
             $fullNameIssue,
             $bicIssue,
             $accountIssue,
@@ -353,7 +378,7 @@ function ccRefundReadXlsx(string $path, int $fileSize): array
         $records[] = [
             '_row_number' => $rowNumber,
             '_issues' => $issues,
-            '_rejected' => $cardIssue !== null,
+            '_rejected' => $cardIssue !== null || $contactIssue !== null,
             'card_number' => $cardNumber,
             'client_contact_date' => $clientContactDate,
             'request_number' => $requestNumber,
@@ -379,10 +404,40 @@ function ccRefundSourceKey(string $requestNumber, string $cardNumber): string
     );
 }
 
+function ccRefundManualRecord(array $form): array
+{
+    $values = [];
+    foreach (['card_number', 'client_contact_date', 'request_number', 'customer_phone',
+              'customer_email', 'customer_full_name', 'bank_bic', 'bank_account'] as $field) {
+        $values[$field] = trim((string)($form[$field] ?? ''));
+    }
+    [$card, $cardIssue] = ccRefundCardNumberValue($values['card_number']);
+    [$date, $dateIssue] = ccRefundOptionalDateValue($values['client_contact_date'], false);
+    [$phone, $phoneIssue] = ccRefundOptionalPhoneValue($values['customer_phone']);
+    [$email, $emailIssue] = ccRefundOptionalEmailValue($values['customer_email']);
+    if ($phone !== '' && $emailIssue !== null) $emailIssue = null;
+    $contactIssue = ccRefundContactIssue($phone, $email);
+    [$name, $nameIssue] = ccRefundOptionalFullNameValue($values['customer_full_name']);
+    [$bic, $bicIssue] = ccRefundOptionalDigitsValue($values['bank_bic'], 9, 'Неверный формат БИК (ожидается 9 цифр).');
+    [$account, $accountIssue] = ccRefundOptionalDigitsValue($values['bank_account'], 20, 'Неверный формат расчётного счёта (ожидается 20 цифр).');
+    $issues = array_values(array_filter([$cardIssue, $dateIssue, $phoneIssue, $emailIssue, $contactIssue,
+        $nameIssue, $bicIssue, $accountIssue]));
+    if (mb_strlen($values['request_number'], 'UTF-8') > 100) $issues[] = 'Номер обращения превышает 100 символов.';
+    if ($issues) throw new InvalidArgumentException(implode(' ', $issues));
+    return [
+        '_row_number' => 1, '_issues' => [], '_rejected' => false,
+        'card_number' => $card, 'client_contact_date' => $date,
+        'request_number' => $values['request_number'], 'customer_phone' => $phone,
+        'customer_email' => $email, 'customer_full_name' => $name,
+        'bank_bic' => $bic, 'bank_account' => $account,
+    ];
+}
+
 function ccRefundPayloadJson(array $record): string
 {
     return json_encode([
         'card_number' => (string)$record['card_number'],
+        'organization_id' => (string)($record['organization_id'] ?? ''),
         'client_contact_date' => (string)$record['client_contact_date'],
         'request_number' => (string)$record['request_number'],
         'customer_phone' => (string)$record['customer_phone'],
@@ -449,8 +504,22 @@ function ccRefundDecryptPayload(string $encryptedValue): array
 function ccRefundQueue(PDO $pdo, array $records, int $submittedByUserId): array
 {
     ccEnsureSchema($pdo);
+    $ticket = $pdo->prepare(
+        'INSERT INTO `cc_refund_tickets`
+         (`card_number`,`request_number`,`client_contact_date`,`has_phone`,`has_email`,`has_full_name`,`has_bic`,`has_account`)
+         VALUES (:card_number,:request_number,:client_contact_date,:has_phone,:has_email,:has_full_name,:has_bic,:has_account)
+         ON DUPLICATE KEY UPDATE
+           `request_number`=IF(VALUES(`request_number`)<>\'\',VALUES(`request_number`),`request_number`),
+           `client_contact_date`=COALESCE(VALUES(`client_contact_date`),`client_contact_date`),
+           `has_phone`=GREATEST(`has_phone`,VALUES(`has_phone`)),
+           `has_email`=GREATEST(`has_email`,VALUES(`has_email`)),
+           `has_full_name`=GREATEST(`has_full_name`,VALUES(`has_full_name`)),
+           `has_bic`=GREATEST(`has_bic`,VALUES(`has_bic`)),
+           `has_account`=GREATEST(`has_account`,VALUES(`has_account`)),
+           `last_submitted_at`=NOW()'
+    );
     $select = $pdo->prepare(
-        'SELECT `id`, `payload_hash`, `queue_status`
+        'SELECT `id`, `payload_hash`, `payload_encrypted`, `queue_status`
          FROM `cc_card_refund_queue`
          WHERE `source_key` = :source_key
          LIMIT 1
@@ -516,9 +585,19 @@ function ccRefundQueue(PDO $pdo, array $records, int $submittedByUserId): array
                 (string)$record['card_number']
             );
             $payloadJson = ccRefundPayloadJson($record);
-            $payloadHash = hash('sha256', $payloadJson);
             $select->execute(['source_key' => $sourceKey]);
             $existing = $select->fetch();
+            if ($existing && $existing['queue_status'] === 'pending' && $existing['payload_encrypted'] !== null) {
+                $previous = ccRefundDecryptPayload((string)$existing['payload_encrypted']);
+                $incoming = json_decode($payloadJson, true, 32, JSON_THROW_ON_ERROR);
+                foreach ($previous as $field => $value) {
+                    if (array_key_exists($field, $incoming) && ($incoming[$field] === '' || $incoming[$field] === null)) {
+                        $incoming[$field] = $value;
+                    }
+                }
+                $payloadJson = json_encode($incoming, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+            }
+            $payloadHash = hash('sha256', $payloadJson);
             if (!$existing) {
                 $insert->execute([
                     'source_key' => $sourceKey,
@@ -543,7 +622,22 @@ function ccRefundQueue(PDO $pdo, array $records, int $submittedByUserId): array
                 $operation = 'Обновлено в CLZ.';
             }
 
+            $ticket->execute([
+                'card_number' => (string)$record['card_number'],
+                'request_number' => (string)$record['request_number'],
+                'client_contact_date' => (string)$record['client_contact_date'] ?: null,
+                'has_phone' => (int)((string)$record['customer_phone'] !== ''),
+                'has_email' => (int)((string)$record['customer_email'] !== ''),
+                'has_full_name' => (int)((string)$record['customer_full_name'] !== ''),
+                'has_bic' => (int)((string)$record['bank_bic'] !== ''),
+                'has_account' => (int)((string)$record['bank_account'] !== ''),
+            ]);
+
             $details = ["Строка {$rowNumber} — {$operation}"];
+            $blockOnly = ccRefundIsBlockOnly($record);
+            if ($blockOnly) {
+                $details[] = "Строка {$rowNumber} — только блокировка: нет полного набора ФИО, БИК и РС.";
+            }
             foreach ($issues as $issue) {
                 $details[] = "Строка {$rowNumber} — {$issue}";
             }
@@ -551,7 +645,7 @@ function ccRefundQueue(PDO $pdo, array $records, int $submittedByUserId): array
                 'row_number' => $rowNumber,
                 'card_number' => (string)$record['card_number'],
                 'result' => $issues ? 'warning' : 'success',
-                'label' => $issues ? 'Загружено с замечаниями' : 'Успех',
+                'label' => $issues ? 'Загружено с замечаниями' : ($blockOnly ? 'Только блокировка' : 'Успех'),
                 'details' => $details,
             ];
         }

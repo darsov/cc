@@ -200,7 +200,7 @@ function ccRequireAuth(): array
 {
     $user = ccCurrentUser();
     if ($user === null) {
-        header('Location: login.php');
+        header('Location: /login.php');
         exit;
     }
     return $user;

@@ -224,6 +224,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             <code>БИК 10 цифр</code>,
             <code>РС 20 цифр</code>.
         </div>
+        <p>Укажите телефон или email. Если ФИО либо банковские реквизиты не заполнены, заявка будет отмечена как «Только блокировка». Колонки после РС игнорируются.</p>
 
         <form class="upload-form" method="post" enctype="multipart/form-data">
             <input type="hidden" name="csrf_token" value="<?= ccRefundEscape(ccRefundCsrfToken()) ?>">

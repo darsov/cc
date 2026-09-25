@@ -6,9 +6,13 @@ require_once __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/card_refund_lib.php';
 require_once __DIR__ . '/card_services.php';
 
+header('X-CC-Refund-Revision: 20260925-inline-controls-v2');
 $currentUser = ccRequireAuth();
 $scriptNonce = base64_encode(random_bytes(16));
-ccApplyHtmlHeaders($scriptNonce);
+ccApplyHtmlHeaders();
+header("Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; "
+    . "script-src 'self' 'nonce-" . $scriptNonce . "'; base-uri 'none'; "
+    . "form-action 'self'; frame-ancestors 'none'");
 
 function ccRefundEscape(string $value): string
 {

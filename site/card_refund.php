@@ -87,7 +87,6 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         }
         * { box-sizing:border-box; }
         body { min-height:100vh; margin:0; padding:2rem 1rem; color:#0f172a; background:#f8fafc; }
-        main { width:min(100%,72rem); margin:0 auto; }
         .cc-menu { margin-bottom:1rem; display:flex; justify-content:space-between; gap:1rem; align-items:center; flex-wrap:wrap; }
         .cc-menu a { color:#2563eb; text-decoration:none; }
         .cc-menu form { display:inline; }
@@ -157,9 +156,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             .panel { padding:1.25rem; }
         }
     </style>
+    <?php require __DIR__ . '/cc_layout.php'; ?>
 </head>
 <body>
-<main>
+<main class="cc-page">
     <?php include __DIR__ . '/menu.php'; ?>
 
     <?php if ($error !== null): ?>

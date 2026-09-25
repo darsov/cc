@@ -44,13 +44,13 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
 <meta name="robots" content="noindex, nofollow"><title>Проверка карты · КЦ</title>
 <style>
 body{font-family:system-ui,sans-serif;background:#f8fafc;color:#0f172a;margin:0;padding:2rem 1rem}
-main{width:min(100%,72rem);margin:auto}.cc-menu{display:flex;justify-content:space-between;flex-wrap:wrap;gap:1rem;margin-bottom:1rem}
+.cc-menu{display:flex;justify-content:space-between;flex-wrap:wrap;gap:1rem;margin-bottom:1rem}
 .cc-menu a{color:#2563eb;text-decoration:none}.cc-menu form{display:inline}.cc-menu button{border:0;background:none;color:#2563eb;cursor:pointer}
 .panel{background:#fff;border:1px solid #e2e8f0;border-radius:1rem;padding:2rem;box-shadow:0 18px 45px rgba(15,23,42,.08)}
 form.check{display:flex;flex-wrap:wrap;gap:.7rem}input{padding:.8rem;border:1px solid #94a3b8;border-radius:.5rem;font:inherit}
 .check button{padding:.8rem;border:0;border-radius:.5rem;background:#2563eb;color:#fff;cursor:pointer}
 .error{background:#fee2e2;color:#991b1b;padding:1rem;border-radius:.6rem}.details{margin-top:1rem;line-height:1.8}
-</style></head><body><main>
+</style><?php require __DIR__ . '/cc_layout.php'; ?></head><body><main class="cc-page">
 <?php include __DIR__ . '/menu.php'; ?>
 <section class="panel"><h1>Проверка подарочной карты</h1>
 <form class="check" method="post">

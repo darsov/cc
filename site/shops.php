@@ -73,7 +73,7 @@ $pageUrl = static function (int $number) use ($search): string {
     <title>Магазины · Контакт-центр</title>
     <style>
         :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:#0f172a;background:#f8fafc}
-        *{box-sizing:border-box}body{margin:0;padding:2rem 1rem}main{width:min(100%,84rem);margin:auto}
+        *{box-sizing:border-box}body{margin:0;padding:2rem 1rem}
         .cc-menu{display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1rem}
         .cc-menu a{color:#2563eb;text-decoration:none}.cc-menu form{display:inline}.cc-menu button{border:0;background:none;color:#2563eb;cursor:pointer}
         .panel{padding:1.5rem;border:1px solid #e2e8f0;border-radius:1rem;background:#fff;box-shadow:0 18px 45px rgba(15,23,42,.06)}
@@ -85,8 +85,9 @@ $pageUrl = static function (int $number) use ($search): string {
         .error{padding:1rem;border-radius:.6rem;background:#fef2f2;color:#991b1b}.pagination{display:flex;gap:1rem;margin-top:1rem}
         .pagination a{color:#2563eb}
     </style>
+    <?php require __DIR__ . '/cc_layout.php'; ?>
 </head>
-<body><main>
+<body><main class="cc-page">
     <?php include __DIR__ . '/menu.php'; ?>
     <section class="panel">
         <h1>Магазины</h1>

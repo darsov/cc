@@ -211,9 +211,9 @@ function ccBridgeSyncRefundTickets(PDO $pdo, array $payload): array
     $upsert = $pdo->prepare(
         'INSERT INTO `cc_refund_tickets`
          (`card_number`,`request_number`,`client_contact_date`,`has_phone`,`has_email`,`has_full_name`,
-          `has_bic`,`has_account`,`decision`,`payment_status`)
+          `has_bic`,`has_account`,`decision`,`decision_reason`,`payment_status`,`payment_denial_reason`)
          VALUES (:card_number,:request_number,:client_contact_date,:has_phone,:has_email,:has_full_name,
-                 :has_bic,:has_account,:decision,:payment_status)
+                 :has_bic,:has_account,:decision,:decision_reason,:payment_status,:payment_denial_reason)
          ON DUPLICATE KEY UPDATE
          `request_number`=IF(VALUES(`request_number`)<>\'\', VALUES(`request_number`), `request_number`),
          `client_contact_date`=COALESCE(VALUES(`client_contact_date`),`client_contact_date`),
@@ -222,7 +222,8 @@ function ccBridgeSyncRefundTickets(PDO $pdo, array $payload): array
          `has_full_name`=GREATEST(`has_full_name`,VALUES(`has_full_name`)),
          `has_bic`=GREATEST(`has_bic`,VALUES(`has_bic`)),
          `has_account`=GREATEST(`has_account`,VALUES(`has_account`)),
-         `decision`=VALUES(`decision`),`payment_status`=VALUES(`payment_status`)'
+         `decision`=VALUES(`decision`),`decision_reason`=VALUES(`decision_reason`),
+         `payment_status`=VALUES(`payment_status`),`payment_denial_reason`=VALUES(`payment_denial_reason`)'
     );
     $pdo->beginTransaction();
     try {
@@ -233,6 +234,14 @@ function ccBridgeSyncRefundTickets(PDO $pdo, array $payload): array
             $date = $ticket['client_contact_date'] ?? null;
             $decision = (string)($ticket['decision'] ?? '');
             $payment = (string)($ticket['payment_status'] ?? '');
+            foreach (['decision_reason', 'payment_denial_reason'] as $reasonField) {
+                if (isset($ticket[$reasonField]) && !is_string($ticket[$reasonField])) {
+                    throw new InvalidArgumentException('Некорректная причина отказа в tickets.');
+                }
+                if (mb_strlen((string)($ticket[$reasonField] ?? ''), 'UTF-8') > 2000) {
+                    throw new InvalidArgumentException('Причина отказа в tickets превышает 2000 символов.');
+                }
+            }
             if (!preg_match('/^(?:\d{10}|\d{20})$/D', $card) || mb_strlen($request) > 100
                 || ($date !== null && $date !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/D', (string)$date))
                 || !in_array($decision, ['new','in_progress','blocked','ready_for_payment','refunded','rejected'], true)
@@ -240,7 +249,9 @@ function ccBridgeSyncRefundTickets(PDO $pdo, array $payload): array
                 throw new InvalidArgumentException('Некорректный номер карты, дата или статус в tickets.');
             }
             $params = ['card_number' => $card, 'request_number' => $request,
-                'client_contact_date' => $date ?: null, 'decision' => $decision, 'payment_status' => $payment];
+                'client_contact_date' => $date ?: null, 'decision' => $decision, 'payment_status' => $payment,
+                'decision_reason' => $decision === 'rejected' ? trim((string)($ticket['decision_reason'] ?? '')) : null,
+                'payment_denial_reason' => $payment === 'denied' ? trim((string)($ticket['payment_denial_reason'] ?? '')) : null];
             foreach (['phone', 'email', 'full_name', 'bic', 'account'] as $field) {
                 $value = $ticket['has_' . $field] ?? null;
                 if ($value !== 0 && $value !== 1) throw new InvalidArgumentException('Некорректный признак данных в tickets.');

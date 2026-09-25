@@ -2,5 +2,7 @@
 
 declare(strict_types=1);
 
-// The login page is the CC home page. Keep its normal authentication flow.
-require __DIR__ . '/login.php';
+// Keep the root independent of sessions, the database and template includes.
+header('X-CC-Index-Revision: 20260925-redirect');
+header('Location: /login.php', true, 302);
+exit;

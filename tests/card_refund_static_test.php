@@ -51,7 +51,7 @@ $checks = [
     [str_contains($page, 'Результат загрузки'), 'Per-row result table is missing.'],
     [!str_contains($page, 'Они попадут в защищённую очередь'), 'Internal queue text is still visible.'],
     [!str_contains($page, 'Сам XLSX не сохраняется'), 'Technical XLSX note is still visible.'],
-    [str_contains($index, "require __DIR__ . '/login.php'"), 'Main CC login page is missing.'],
+    [str_contains($index, "Location: /login.php"), 'Main CC redirect to login is missing.'],
     [str_contains($shopsPage, 'ccRequireAuth()'), 'Shops page authentication is missing.'],
     [str_contains($shopsRoute, "'/shops.php'"), 'Short shops route is missing.'],
     [str_contains($menu, '/shops/'), 'Shops menu link is missing.'],

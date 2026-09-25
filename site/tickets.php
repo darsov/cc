@@ -31,9 +31,16 @@ try {
     $error = 'Не удалось загрузить заявки. Проверьте создание таблицы cc_refund_tickets.';
 }
 
-$indicator = static function (bool $present, string $label): string {
-    return '<span title="' . ccEscape($label) . '" aria-label="' . ccEscape($label) . '">'
-        . ($present ? '✅' : '❌') . '</span>';
+$fieldIndicator = static function (array $row, string $key): string {
+    if (!empty($row['has_' . $key])) return '';
+    return in_array($key, ['full_name','bic','account'], true) ? '⚠️' : '—';
+};
+$statusIndicator = static function (string $status, array $positive, array $negative, string $reason): string {
+    if (isset($positive[$status])) return '<span title="' . ccEscape($positive[$status]) . '">✅</span>';
+    if (!isset($negative[$status])) return '';
+    $html = '<span title="' . ccEscape($negative[$status]) . '">❌</span>';
+    if ($reason !== '') $html .= '<small class="reason">' . ccEscape($reason) . '</small>';
+    return $html;
 };
 $url = static fn(int $number): string => '/tickets.php?' . http_build_query(['q' => $q, 'page' => $number]);
 ?>
@@ -41,14 +48,15 @@ $url = static fn(int $number): string => '/tickets.php?' . http_build_query(['q'
 <meta name="robots" content="noindex,nofollow"><title>Заявки · Контакт-центр</title>
 <style>
 :root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#0f172a;background:#f8fafc}*{box-sizing:border-box}
-body{margin:0;padding:2rem 1rem}main{max-width:90rem;margin:auto}.cc-menu{display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1rem}
+body{margin:0;padding:2rem 1rem}.cc-menu{display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1rem}
 .cc-menu form{display:inline}.panel{background:#fff;border:1px solid #e2e8f0;border-radius:1rem;padding:1.5rem}
 h1{margin:0 0 .6rem}.muted{color:#64748b}.search{display:flex;gap:.6rem;margin:1rem 0}
 input{padding:.7rem;border:1px solid #cbd5e1;border-radius:.5rem;max-width:100%}
 .search button{padding:.7rem 1rem;color:#fff;background:#2563eb;border:0;border-radius:.5rem;cursor:pointer}
 .scroll{overflow:auto}table{width:100%;min-width:64rem;border-collapse:collapse;text-align:left}th,td{padding:.65rem;border-bottom:1px solid #e2e8f0}
 th{background:#f8fafc}td.flag,th.flag{text-align:center}.pages{display:flex;gap:1rem;margin-top:1rem}
-</style></head><body><main>
+.reason{display:block;margin-top:.3rem;max-width:18rem;color:#475569;font-size:.8rem;line-height:1.35;text-align:left;white-space:pre-wrap;overflow-wrap:anywhere}
+</style><?php require __DIR__ . '/cc_layout.php'; ?></head><body><main class="cc-page">
 <?php include __DIR__ . '/menu.php'; ?>
 <section class="panel"><h1>Заявки</h1>
 <?php if ($error !== null): ?><p role="alert"><?= ccEscape($error) ?></p><?php else: ?>
@@ -56,20 +64,21 @@ th{background:#f8fafc}td.flag,th.flag{text-align:center}.pages{display:flex;gap:
 <form class="search" method="get"><input name="q" value="<?= ccEscape($q) ?>" placeholder="Номер обращения или карты" aria-label="Поиск">
 <button type="submit">Найти</button></form>
 <div class="scroll"><table><thead><tr><th>Обращение</th><th>Подарочная карта</th>
-<?php foreach (['Телефон','Email','ФИО','БИК','Счёт','Решение','Выплата'] as $heading): ?><th class="flag"><?= $heading ?></th><?php endforeach; ?>
+<?php foreach (['Телефон','Email','ФИО','БИК','Счёт','Заблокированна','Выплата'] as $heading): ?><th class="flag"><?= $heading ?></th><?php endforeach; ?>
 </tr></thead><tbody>
 <?php foreach ($rows as $row): ?>
-<tr><td><?= ccEscape((string)$row['request_number']) ?><br><small><?= $row['client_contact_date'] ? ccEscape(date('d.m.Y', strtotime((string)$row['client_contact_date']))) : '—' ?></small></td>
+<?php $requestNumber = trim((string)$row['request_number']); ?>
+<tr><td><?php if ($requestNumber !== '' && ctype_digit($requestNumber)): ?><a href="<?= ccEscape('https://calzedonia.intraservice.ru/Task/view/' . rawurlencode($requestNumber)) ?>"><?= ccEscape($requestNumber) ?></a><?php else: ?><?= ccEscape($requestNumber !== '' ? $requestNumber : '—') ?><?php endif; ?><br><small><?= $row['client_contact_date'] ? ccEscape(date('d.m.Y', strtotime((string)$row['client_contact_date']))) : '—' ?></small></td>
 <td><?= ccEscape((string)$row['card_number']) ?></td>
 <?php foreach (['phone'=>'Телефон','email'=>'Email','full_name'=>'ФИО','bic'=>'БИК','account'=>'Счёт'] as $key=>$label): ?>
-<td class="flag"><?= $indicator((bool)$row['has_'.$key], $label . ((bool)$row['has_'.$key] ? ' указан' : ' отсутствует')) ?></td>
+<td class="flag"><?= $fieldIndicator($row, $key) ?></td>
 <?php endforeach; ?>
 <?php $decision = (string)$row['decision']; $payment = (string)$row['payment_status']; ?>
-<td class="flag"><?= $indicator(in_array($decision, ['blocked','ready_for_payment','refunded','rejected'], true),
-    ['blocked'=>'Карта заблокирована','ready_for_payment'=>'Готово к выплате','refunded'=>'Возврат оформлен',
-     'rejected'=>'Отказ','new'=>'Без решения','in_progress'=>'В работе'][$decision] ?? 'Без решения') ?></td>
-<td class="flag"><?= $indicator($payment === 'paid', ['paid'=>'Выплачено','denied'=>'Отказано в выплате',
-    'pending'=>'Выплата ожидается'][$payment] ?? 'Выплата ожидается') ?></td></tr>
+<td class="flag"><?= $statusIndicator($decision,
+    ['blocked'=>'Карта заблокирована','ready_for_payment'=>'Готово к выплате','refunded'=>'Возврат оформлен'],
+    ['rejected'=>'Отказ в блокировке'], trim((string)($row['decision_reason'] ?? ''))) ?></td>
+<td class="flag"><?= $statusIndicator($payment, ['paid'=>'Выплачено'],
+    ['denied'=>'Отказ в выплате'], trim((string)($row['payment_denial_reason'] ?? ''))) ?></td></tr>
 <?php endforeach; ?>
 </tbody></table></div>
 <?php if (!$rows): ?><p class="muted">Заявки не найдены.</p><?php endif; ?>

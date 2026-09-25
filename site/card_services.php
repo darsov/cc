@@ -80,6 +80,13 @@ function ccParseGiftCardLookup(array $result, string $cardNumber): array
     ];
 }
 
+/** The first production node is p13; p11 and p12 are production fallbacks. */
+function ccGiftcardsFindUrls(): array
+{
+    return array_map(static fn(string $host): string =>
+        'https://ru-dtrap-' . $host . '.sys.clz.ru:14104/giftcardsFind', ['p13', 'p11', 'p12']);
+}
+
 /** A gateway or backend failure must never be interpreted as a missing card. */
 function ccFindGiftCardDetails(string $cardNumber): array
 {
@@ -87,17 +94,13 @@ function ccFindGiftCardDetails(string $cardNumber): array
     if (!function_exists('curl_init')) {
         throw new RuntimeException('На сервере КЦ недоступен PHP cURL.');
     }
-    $url = trim((string)(ccEnvironmentValue('CC_DATAREON_GIFTCARDS_URL')
-        ?? 'https://ru-dtrap-p13.sys.clz.ru:14104/giftcardsFind'));
-    if (!str_starts_with($url, 'https://')) {
-        throw new RuntimeException('Адрес Datareon должен использовать HTTPS.');
-    }
     $body = json_encode([
         'dummyField' => 0,
         'organizationId' => '',
         'giftcartNumber' => $cardNumber,
     ], JSON_THROW_ON_ERROR);
-    for ($attempt = 0; $attempt < 2; $attempt++) {
+    $failures = [];
+    foreach (ccGiftcardsFindUrls() as $url) {
         $curl = curl_init($url);
         curl_setopt_array($curl, [
             CURLOPT_POST => true,
@@ -105,7 +108,7 @@ function ccFindGiftCardDetails(string $cardNumber): array
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_CONNECTTIMEOUT => 3,
-            CURLOPT_TIMEOUT => 12,
+            CURLOPT_TIMEOUT => 6,
             CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Accept: application/json'],
         ]);
         $response = curl_exec($curl);
@@ -113,14 +116,12 @@ function ccFindGiftCardDetails(string $cardNumber): array
         $error = curl_error($curl);
         curl_close($curl);
         if ($response === false) {
-            throw new RuntimeException('Datareon недоступен: ' . $error);
-        }
-        if (in_array($status, [502, 503, 504], true) && $attempt === 0) {
-            usleep(300000);
+            $failures[] = parse_url($url, PHP_URL_HOST) . ': ' . ($error ?: 'ошибка соединения');
             continue;
         }
         if ($status !== 200) {
-            throw new RuntimeException('Datareon вернул HTTP ' . $status . '. Проверка организации не выполнена.');
+            $failures[] = parse_url($url, PHP_URL_HOST) . ': HTTP ' . $status;
+            continue;
         }
         $result = json_decode($response, true);
         if (!is_array($result)) {
@@ -128,7 +129,7 @@ function ccFindGiftCardDetails(string $cardNumber): array
         }
         return ccParseGiftCardLookup($result, $cardNumber);
     }
-    throw new RuntimeException('Не удалось проверить организацию карты.');
+    throw new RuntimeException('Проверка организации не выполнена: ' . implode('; ', $failures));
 }
 
 /** Batch lookup for OMNI's refund table. Parallel requests keep page loading bounded. */
@@ -147,10 +148,9 @@ function ccFindGiftCardOrganizationsBatch(array $cardNumbers): array
         }
         return $results;
     }
-    $url = trim((string)(ccEnvironmentValue('CC_DATAREON_GIFTCARDS_URL')
-        ?? 'https://ru-dtrap-p13.sys.clz.ru:14104/giftcardsFind'));
-    if (!str_starts_with($url, 'https://')) throw new RuntimeException('Адрес Datareon должен использовать HTTPS.');
-    for ($attempt = 0; $attempt < 2 && $remaining; $attempt++) {
+    $urls = ccGiftcardsFindUrls();
+    for ($attempt = 0; $attempt < count($urls) && $remaining; $attempt++) {
+        $url = $urls[$attempt];
         $retry = [];
         foreach (array_chunk(array_keys($remaining), 25) as $chunk) {
             $multi = curl_multi_init();
@@ -162,7 +162,7 @@ function ccFindGiftCardOrganizationsBatch(array $cardNumbers): array
                     CURLOPT_POSTFIELDS => json_encode(['dummyField' => 0, 'organizationId' => '',
                         'giftcartNumber' => $number], JSON_THROW_ON_ERROR),
                     CURLOPT_RETURNTRANSFER => true, CURLOPT_FOLLOWLOCATION => false,
-                    CURLOPT_CONNECTTIMEOUT => 3, CURLOPT_TIMEOUT => 12,
+                    CURLOPT_CONNECTTIMEOUT => 3, CURLOPT_TIMEOUT => 6,
                     CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Accept: application/json'],
                 ]);
                 curl_multi_add_handle($multi, $curl);
@@ -176,12 +176,14 @@ function ccFindGiftCardOrganizationsBatch(array $cardNumbers): array
                 $response = curl_multi_getcontent($curl);
                 $status = (int)curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
                 $error = curl_error($curl);
-                if ($code !== CURLM_OK || $response === false || $status === 0) {
-                    $results[$number] = ['error' => 'Datareon недоступен: ' . ($error ?: 'ошибка соединения')];
-                } elseif (in_array($status, [502, 503, 504], true) && $attempt === 0) {
-                    $retry[$number] = true;
-                } elseif ($status !== 200) {
-                    $results[$number] = ['error' => 'Datareon вернул HTTP ' . $status . '.'];
+                if ($code !== CURLM_OK || $response === false || $status !== 200) {
+                    if ($attempt < count($urls) - 1) {
+                        $retry[$number] = true;
+                    } else {
+                        $results[$number] = ['error' => 'Проверка организации не выполнена: '
+                            . parse_url($url, PHP_URL_HOST) . ': '
+                            . ($status ? 'HTTP ' . $status : ($error ?: 'ошибка соединения'))];
+                    }
                 } else {
                     $data = json_decode($response, true);
                     try {
@@ -197,7 +199,6 @@ function ccFindGiftCardOrganizationsBatch(array $cardNumbers): array
             curl_multi_close($multi);
         }
         $remaining = $retry;
-        if ($remaining) usleep(300000);
     }
     return $results;
 }

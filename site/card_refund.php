@@ -6,7 +6,7 @@ require_once __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/card_refund_lib.php';
 require_once __DIR__ . '/card_services.php';
 
-header('X-CC-Refund-Revision: 20260925-inline-controls-v2');
+header('X-CC-Refund-Revision: 20260925-queue-without-lookup');
 $currentUser = ccRequireAuth();
 $scriptNonce = base64_encode(random_bytes(16));
 ccApplyHtmlHeaders();
@@ -225,7 +225,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             <code>Телефон в формате 7XXXXXXXXXX</code>,
             <code>Электронная почта только xxx@xxx.xx</code>,
             <code>ФИО только русские буквы</code>,
-            <code>БИК 10 цифр</code>,
+            <code>БИК 9 цифр</code>,
             <code>РС 20 цифр</code>.
         </div>
         <p>Укажите телефон или email. Если ФИО либо банковские реквизиты не заполнены, заявка будет отмечена как «Только блокировка». Колонки после РС игнорируются.</p>
@@ -245,8 +245,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                 <label>Номер карты<input name="card_number" inputmode="numeric" pattern="[0-9]{10}|[0-9]{20}" required maxlength="20"></label>
                 <label>Дата обращения<input name="client_contact_date" placeholder="ДД.ММ.ГГГГ"></label>
                 <label>Номер обращения<input name="request_number" maxlength="100"></label>
-                <label>Телефон<input name="customer_phone" placeholder="7XXXXXXXXXX" pattern="7[0-9]{10}"></label>
-                <label>Email<input name="customer_email" type="email"></label>
+                <label>Телефон<input name="customer_phone" placeholder="7XXXXXXXXXX" inputmode="tel"></label>
+                <label>Email<input name="customer_email" type="text" inputmode="email"></label>
                 <label>ФИО<input name="customer_full_name"></label>
                 <label>БИК<input name="bank_bic" inputmode="numeric"></label>
                 <label>Расчётный счёт<input name="bank_account" inputmode="numeric"></label>

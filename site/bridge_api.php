@@ -202,6 +202,60 @@ function ccBridgeSyncMindbox(PDO $pdo, array $payload): array
     return ['synced' => ccStoreMindboxSettings($pdo, $brands)];
 }
 
+function ccBridgeSyncRefundTickets(PDO $pdo, array $payload): array
+{
+    $tickets = $payload['tickets'] ?? null;
+    if (!is_array($tickets) || count($tickets) > 500) {
+        throw new InvalidArgumentException('Ожидается массив tickets (не более 500 записей).');
+    }
+    $upsert = $pdo->prepare(
+        'INSERT INTO `cc_refund_tickets`
+         (`card_number`,`request_number`,`client_contact_date`,`has_phone`,`has_email`,`has_full_name`,
+          `has_bic`,`has_account`,`decision`,`payment_status`)
+         VALUES (:card_number,:request_number,:client_contact_date,:has_phone,:has_email,:has_full_name,
+                 :has_bic,:has_account,:decision,:payment_status)
+         ON DUPLICATE KEY UPDATE
+         `request_number`=IF(VALUES(`request_number`)<>\'\', VALUES(`request_number`), `request_number`),
+         `client_contact_date`=COALESCE(VALUES(`client_contact_date`),`client_contact_date`),
+         `has_phone`=GREATEST(`has_phone`,VALUES(`has_phone`)),
+         `has_email`=GREATEST(`has_email`,VALUES(`has_email`)),
+         `has_full_name`=GREATEST(`has_full_name`,VALUES(`has_full_name`)),
+         `has_bic`=GREATEST(`has_bic`,VALUES(`has_bic`)),
+         `has_account`=GREATEST(`has_account`,VALUES(`has_account`)),
+         `decision`=VALUES(`decision`),`payment_status`=VALUES(`payment_status`)'
+    );
+    $pdo->beginTransaction();
+    try {
+        foreach ($tickets as $ticket) {
+            if (!is_array($ticket)) throw new InvalidArgumentException('Некорректная запись tickets.');
+            $card = trim((string)($ticket['card_number'] ?? ''));
+            $request = trim((string)($ticket['request_number'] ?? ''));
+            $date = $ticket['client_contact_date'] ?? null;
+            $decision = (string)($ticket['decision'] ?? '');
+            $payment = (string)($ticket['payment_status'] ?? '');
+            if (!preg_match('/^(?:\d{10}|\d{20})$/D', $card) || mb_strlen($request) > 100
+                || ($date !== null && $date !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/D', (string)$date))
+                || !in_array($decision, ['new','in_progress','blocked','ready_for_payment','refunded','rejected'], true)
+                || !in_array($payment, ['pending','paid','denied'], true)) {
+                throw new InvalidArgumentException('Некорректный номер карты, дата или статус в tickets.');
+            }
+            $params = ['card_number' => $card, 'request_number' => $request,
+                'client_contact_date' => $date ?: null, 'decision' => $decision, 'payment_status' => $payment];
+            foreach (['phone', 'email', 'full_name', 'bic', 'account'] as $field) {
+                $value = $ticket['has_' . $field] ?? null;
+                if ($value !== 0 && $value !== 1) throw new InvalidArgumentException('Некорректный признак данных в tickets.');
+                $params['has_' . $field] = $value;
+            }
+            $upsert->execute($params);
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+    return ['synced' => count($tickets)];
+}
+
 $body = file_get_contents('php://input');
 if (!is_string($body)) {
     $body = '';
@@ -231,6 +285,9 @@ try {
     }
     if ($action === 'ack_refunds' && $method === 'POST') {
         ccBridgeReply(200, ['ok' => true] + ccBridgeAcknowledgeRefunds($pdo, ccBridgeJsonBody($body)));
+    }
+    if ($action === 'sync_refund_tickets' && $method === 'POST') {
+        ccBridgeReply(200, ['ok' => true] + ccBridgeSyncRefundTickets($pdo, ccBridgeJsonBody($body)));
     }
     if ($action === 'lookup_organizations' && $method === 'POST') {
         ccBridgeReply(200, ['ok' => true] + ccBridgeLookupOrganizations($pdo, ccBridgeJsonBody($body)));

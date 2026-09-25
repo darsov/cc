@@ -504,8 +504,22 @@ function ccRefundDecryptPayload(string $encryptedValue): array
 function ccRefundQueue(PDO $pdo, array $records, int $submittedByUserId): array
 {
     ccEnsureSchema($pdo);
+    $ticket = $pdo->prepare(
+        'INSERT INTO `cc_refund_tickets`
+         (`card_number`,`request_number`,`client_contact_date`,`has_phone`,`has_email`,`has_full_name`,`has_bic`,`has_account`)
+         VALUES (:card_number,:request_number,:client_contact_date,:has_phone,:has_email,:has_full_name,:has_bic,:has_account)
+         ON DUPLICATE KEY UPDATE
+           `request_number`=IF(VALUES(`request_number`)<>\'\',VALUES(`request_number`),`request_number`),
+           `client_contact_date`=COALESCE(VALUES(`client_contact_date`),`client_contact_date`),
+           `has_phone`=GREATEST(`has_phone`,VALUES(`has_phone`)),
+           `has_email`=GREATEST(`has_email`,VALUES(`has_email`)),
+           `has_full_name`=GREATEST(`has_full_name`,VALUES(`has_full_name`)),
+           `has_bic`=GREATEST(`has_bic`,VALUES(`has_bic`)),
+           `has_account`=GREATEST(`has_account`,VALUES(`has_account`)),
+           `last_submitted_at`=NOW()'
+    );
     $select = $pdo->prepare(
-        'SELECT `id`, `payload_hash`, `queue_status`
+        'SELECT `id`, `payload_hash`, `payload_encrypted`, `queue_status`
          FROM `cc_card_refund_queue`
          WHERE `source_key` = :source_key
          LIMIT 1
@@ -571,9 +585,19 @@ function ccRefundQueue(PDO $pdo, array $records, int $submittedByUserId): array
                 (string)$record['card_number']
             );
             $payloadJson = ccRefundPayloadJson($record);
-            $payloadHash = hash('sha256', $payloadJson);
             $select->execute(['source_key' => $sourceKey]);
             $existing = $select->fetch();
+            if ($existing && $existing['queue_status'] === 'pending' && $existing['payload_encrypted'] !== null) {
+                $previous = ccRefundDecryptPayload((string)$existing['payload_encrypted']);
+                $incoming = json_decode($payloadJson, true, 32, JSON_THROW_ON_ERROR);
+                foreach ($previous as $field => $value) {
+                    if (array_key_exists($field, $incoming) && ($incoming[$field] === '' || $incoming[$field] === null)) {
+                        $incoming[$field] = $value;
+                    }
+                }
+                $payloadJson = json_encode($incoming, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+            }
+            $payloadHash = hash('sha256', $payloadJson);
             if (!$existing) {
                 $insert->execute([
                     'source_key' => $sourceKey,
@@ -597,6 +621,17 @@ function ccRefundQueue(PDO $pdo, array $records, int $submittedByUserId): array
                 $updated++;
                 $operation = 'Обновлено в CLZ.';
             }
+
+            $ticket->execute([
+                'card_number' => (string)$record['card_number'],
+                'request_number' => (string)$record['request_number'],
+                'client_contact_date' => (string)$record['client_contact_date'] ?: null,
+                'has_phone' => (int)((string)$record['customer_phone'] !== ''),
+                'has_email' => (int)((string)$record['customer_email'] !== ''),
+                'has_full_name' => (int)((string)$record['customer_full_name'] !== ''),
+                'has_bic' => (int)((string)$record['bank_bic'] !== ''),
+                'has_account' => (int)((string)$record['bank_account'] !== ''),
+            ]);
 
             $details = ["Строка {$rowNumber} — {$operation}"];
             $blockOnly = ccRefundIsBlockOnly($record);

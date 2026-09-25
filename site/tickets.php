@@ -65,7 +65,7 @@ th{background:#f8fafc}td.flag,th.flag{text-align:center}.pages{display:flex;gap:
 <td class="flag"><?= $indicator((bool)$row['has_'.$key], $label . ((bool)$row['has_'.$key] ? ' указан' : ' отсутствует')) ?></td>
 <?php endforeach; ?>
 <?php $decision = (string)$row['decision']; $payment = (string)$row['payment_status']; ?>
-<td class="flag"><?= $indicator(in_array($decision, ['blocked','ready_for_payment','refunded'], true),
+<td class="flag"><?= $indicator(in_array($decision, ['blocked','ready_for_payment','refunded','rejected'], true),
     ['blocked'=>'Карта заблокирована','ready_for_payment'=>'Готово к выплате','refunded'=>'Возврат оформлен',
      'rejected'=>'Отказ','new'=>'Без решения','in_progress'=>'В работе'][$decision] ?? 'Без решения') ?></td>
 <td class="flag"><?= $indicator($payment === 'paid', ['paid'=>'Выплачено','denied'=>'Отказано в выплате',

@@ -14,7 +14,7 @@ function ccEnsureCardToolsSchema(PDO $pdo): void
         $pdo->query('SELECT `card_number`,`organization_id`,`shop_id`,`checked_at` FROM `cc_card_organizations` LIMIT 0');
         $pdo->query('SELECT `id`,`user_id`,`action`,`card_number`,`outcome` FROM `cc_user_actions` LIMIT 0');
     } catch (Throwable $e) {
-        throw new RuntimeException('Таблицы карт КЦ не готовы. Выполните database/migrate_cc_card_tools.sql и database/migrate_cc_card_shop_id.sql.', 0, $e);
+        throw new RuntimeException('Таблицы карт КЦ не готовы. Запустите на CC php deploy/migrate-card-tools.php. Причина: ' . $e->getMessage(), 0, $e);
     }
 }
 
@@ -80,11 +80,11 @@ function ccParseGiftCardLookup(array $result, string $cardNumber): array
     ];
 }
 
-/** The first production node is p13; p11 and p12 are production fallbacks. */
+/** Both p13 and p12 redirect to p11; probe p13 first, then p11 only once. */
 function ccGiftcardsFindUrls(): array
 {
     return array_map(static fn(string $host): string =>
-        'https://ru-dtrap-' . $host . '.sys.clz.ru:14104/giftcardsFind', ['p13', 'p11', 'p12']);
+        'https://ru-dtrap-' . $host . '.sys.clz.ru:14104/giftcardsFind', ['p13', 'p11']);
 }
 
 /** A gateway or backend failure must never be interpreted as a missing card. */

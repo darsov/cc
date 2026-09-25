@@ -12,26 +12,36 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         if (!ccVerifyCsrf($_POST['csrf_token'] ?? null)) {
             throw new RuntimeException('Сессия устарела. Обновите страницу.');
         }
-        ccEnsureCardToolsSchema(ccDb());
         $card = ccCardNumber($card);
         $organizationId = null;
         $shopId = null;
         $datareonError = null;
+        $storageError = null;
         try {
             $lookup = ccFindGiftCardDetails($card);
-            ccStoreCardOrganizations(ccDb(), [$card => $lookup]);
             $organizationId = $lookup['organization_id'];
             $shopId = $lookup['shop_id'];
+            try { ccStoreCardOrganizations(ccDb(), [$card => $lookup]); }
+            catch (Throwable $e) {
+                error_log('CC card check could not save lookup: ' . $e->getMessage());
+                $storageError = 'Результат проверки получен, но не сохранён в КЦ. Требуется миграция таблиц карт.';
+            }
         }
         catch (Throwable $e) { $datareonError = $e->getMessage(); }
         $mindbox = null;
         $mindboxError = null;
         try { $mindbox = ccCheckMindboxGiftCard($card); }
         catch (Throwable $e) { $mindboxError = $e->getMessage(); }
-        $name = $organizationId === null ? '' : ccCardOrganization(ccDb(), $organizationId);
-        $data = compact('organizationId', 'shopId', 'name', 'mindbox', 'mindboxError', 'datareonError');
-        ccLogAction(ccDb(), (int)$currentUser['id'], 'card_check', $card,
-            $datareonError !== null ? 'datareon_error' : ($organizationId === null ? 'not_found' : 'found'));
+        $name = '';
+        if ($organizationId !== null) {
+            try { $name = ccCardOrganization(ccDb(), $organizationId); }
+            catch (Throwable $e) { error_log('CC card check organization lookup: ' . $e->getMessage()); }
+        }
+        $data = compact('organizationId', 'shopId', 'name', 'mindbox', 'mindboxError', 'datareonError', 'storageError');
+        try {
+            ccLogAction(ccDb(), (int)$currentUser['id'], 'card_check', $card,
+                $datareonError !== null ? 'datareon_error' : ($organizationId === null ? 'not_found' : 'found'));
+        } catch (Throwable $logError) { error_log('CC action log failed: ' . $logError->getMessage()); }
     } catch (Throwable $e) {
         $error = $e->getMessage();
         try { ccLogAction(ccDb(), (int)$currentUser['id'], 'card_check', $card, 'error'); }
@@ -59,6 +69,7 @@ form.check{display:flex;flex-wrap:wrap;gap:.7rem}input{padding:.8rem;border:1px 
 <button type="submit">Проверить</button></form>
 <?php if ($error !== null): ?><p class="error"><?= ccEscape($error) ?></p><?php endif; ?>
 <?php if ($data !== null): ?><div class="details">
+<?php if ($data['storageError'] !== null): ?><p class="error"><?= ccEscape($data['storageError']) ?></p><?php endif; ?>
 <?php if ($data['datareonError'] !== null): ?><strong>Организация:</strong> ошибка проверки — <?= ccEscape($data['datareonError']) ?>
 <?php elseif ($data['organizationId'] === null): ?><strong>Организация:</strong> не определена Datareon.
 <?php else: ?><strong>Организация:</strong> <?= ccEscape($data['name'] !== '' ? $data['name'] : 'Организация отсутствует в справочнике КЦ') ?><?php endif; ?><br>

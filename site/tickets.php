@@ -31,8 +31,9 @@ try {
     $error = 'Не удалось загрузить заявки. Проверьте создание таблицы cc_refund_tickets.';
 }
 
-$fieldIndicator = static function (array $row, string $key): string {
-    if (!empty($row['has_' . $key])) return '';
+$fieldIndicator = static function (array $row, string $key, bool $blockOnly): string {
+    if ($blockOnly) return '';
+    if (!empty($row['has_' . $key])) return '🆗';
     return in_array($key, ['full_name','bic','account'], true) ? '⚠️' : '—';
 };
 $statusIndicator = static function (string $status, array $positive, array $negative, string $reason): string {
@@ -68,10 +69,12 @@ th{background:#f8fafc}td.flag,th.flag{text-align:center}.pages{display:flex;gap:
 </tr></thead><tbody>
 <?php foreach ($rows as $row): ?>
 <?php $requestNumber = trim((string)$row['request_number']); ?>
+<?php $blockOnly = !array_filter(['phone','email','full_name','bic','account'],
+    static fn(string $key): bool => !empty($row['has_' . $key])); ?>
 <tr><td><?php if ($requestNumber !== '' && ctype_digit($requestNumber)): ?><a href="<?= ccEscape('https://calzedonia.intraservice.ru/Task/view/' . rawurlencode($requestNumber)) ?>"><?= ccEscape($requestNumber) ?></a><?php else: ?><?= ccEscape($requestNumber !== '' ? $requestNumber : '—') ?><?php endif; ?><br><small><?= $row['client_contact_date'] ? ccEscape(date('d.m.Y', strtotime((string)$row['client_contact_date']))) : '—' ?></small></td>
 <td><?= ccEscape((string)$row['card_number']) ?></td>
 <?php foreach (['phone'=>'Телефон','email'=>'Email','full_name'=>'ФИО','bic'=>'БИК','account'=>'Счёт'] as $key=>$label): ?>
-<td class="flag"><?= $fieldIndicator($row, $key) ?></td>
+<td class="flag"><?= $fieldIndicator($row, $key, $blockOnly) ?></td>
 <?php endforeach; ?>
 <?php $decision = (string)$row['decision']; $payment = (string)$row['payment_status']; ?>
 <td class="flag"><?= $statusIndicator($decision,

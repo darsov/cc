@@ -7,7 +7,8 @@ require_once __DIR__ . '/card_refund_lib.php';
 require_once __DIR__ . '/card_services.php';
 
 $currentUser = ccRequireAuth();
-ccApplyHtmlHeaders();
+$scriptNonce = base64_encode(random_bytes(16));
+ccApplyHtmlHeaders($scriptNonce);
 
 function ccRefundEscape(string $value): string
 {
@@ -75,7 +76,6 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex, nofollow">
     <title>Возврат подарочных сертификатов · КЦ</title>
-    <script src="card_refund.js" defer></script>
     <style>
         :root {
             color-scheme:light;
@@ -234,22 +234,49 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             <button id="refund-submit" type="submit" disabled>Отправить в CLZ</button>
         </form>
         <h2 style="margin-top:2rem">Ввести одно обращение вручную</h2>
-        <form class="upload-form" method="post">
+        <form id="refund-manual-form" class="upload-form" method="post">
             <input type="hidden" name="csrf_token" value="<?= ccRefundEscape(ccRefundCsrfToken()) ?>">
             <input type="hidden" name="submission_type" value="manual">
             <div class="manual-grid">
                 <label>Номер карты<input name="card_number" inputmode="numeric" pattern="[0-9]{10}|[0-9]{20}" required maxlength="20"></label>
                 <label>Дата обращения<input name="client_contact_date" placeholder="ДД.ММ.ГГГГ"></label>
                 <label>Номер обращения<input name="request_number" maxlength="100"></label>
-                <label>Телефон<input name="customer_phone" placeholder="7XXXXXXXXXX"></label>
+                <label>Телефон<input name="customer_phone" placeholder="7XXXXXXXXXX" pattern="7[0-9]{10}"></label>
                 <label>Email<input name="customer_email" type="email"></label>
                 <label>ФИО<input name="customer_full_name"></label>
                 <label>БИК<input name="bank_bic" inputmode="numeric"></label>
                 <label>Расчётный счёт<input name="bank_account" inputmode="numeric"></label>
             </div>
-            <button type="submit">Отправить в CLZ</button>
+            <button id="refund-manual-submit" type="submit" disabled>Отправить в CLZ</button>
         </form>
     </section>
 </main>
+<script nonce="<?= ccRefundEscape($scriptNonce) ?>">
+(() => {
+    'use strict';
+
+    const fileInput = document.getElementById('refund-xlsx');
+    const uploadButton = document.getElementById('refund-submit');
+    const manualForm = document.getElementById('refund-manual-form');
+    const manualButton = document.getElementById('refund-manual-submit');
+    if (!fileInput || !uploadButton || !manualForm || !manualButton) return;
+
+    const card = manualForm.elements.namedItem('card_number');
+    const phone = manualForm.elements.namedItem('customer_phone');
+    const email = manualForm.elements.namedItem('customer_email');
+    const refresh = () => {
+        uploadButton.disabled = !(fileInput.files && fileInput.files.length > 0);
+        manualButton.disabled = !card.value.trim()
+            || !(phone.value.trim() || email.value.trim())
+            || !manualForm.checkValidity();
+    };
+
+    fileInput.addEventListener('change', refresh);
+    manualForm.addEventListener('input', refresh);
+    manualForm.addEventListener('change', refresh);
+    window.addEventListener('pageshow', refresh);
+    refresh();
+})();
+</script>
 </body>
 </html>

@@ -142,14 +142,19 @@ function ccStartSession(): void
     session_start();
 }
 
-function ccApplyHtmlHeaders(): void
+function ccApplyHtmlHeaders(?string $scriptNonce = null): void
 {
     header('Content-Type: text/html; charset=UTF-8');
     header('X-Content-Type-Options: nosniff');
     header('X-Frame-Options: DENY');
     header('Referrer-Policy: no-referrer');
     header('Cache-Control: no-store');
-    header("Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+    $scripts = "'self'";
+    if ($scriptNonce !== null) {
+        $scripts .= " 'nonce-" . $scriptNonce . "'";
+    }
+    header("Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; script-src "
+        . $scripts . "; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
 }
 
 function ccEscape(string $value): string

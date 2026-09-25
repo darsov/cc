@@ -173,7 +173,7 @@ function ccRefundOptionalDateValue(string $value, bool $numeric): array
 
 function ccRefundOptionalDigitsValue(string $value, int $length, string $errorMessage): array
 {
-    $value = ccRefundNormalizeExcelInteger($value);
+    $value = ccRefundNormalizeExcelInteger(preg_replace('/[\s\p{Z}]+/u', '', $value) ?? $value);
     if ($value === '') {
         return ['', null];
     }
@@ -198,7 +198,7 @@ function ccRefundOptionalFullNameValue(string $value): array
 
 function ccRefundOptionalPhoneValue(string $value): array
 {
-    $value = ccRefundNormalizeExcelInteger($value);
+    $value = ccRefundNormalizeExcelInteger(preg_replace('/[\s\p{Z}]+/u', '', $value) ?? $value);
     if ($value === '') {
         return ['', null];
     }
@@ -276,7 +276,7 @@ function ccRefundReadXlsx(string $path, int $fileSize): array
         'customer_phone' => ['телефон', 'телефон в формате 7xxxxxxxxxx'],
         'customer_email' => ['email', 'e mail', 'электронная почта', 'электронная почта только xxx xxx xx'],
         'customer_full_name' => ['фио', 'ф и о', 'фио только русские буквы'],
-        'bank_bic' => ['бик', 'бик 10 цифр'],
+        'bank_bic' => ['бик', 'бик 9 цифр', 'бик 10 цифр'],
         'bank_account' => [
             'рс', 'р с', 'рс 20 цифр',
             'расчетный счет', 'рассчетный счет', 'расчетный счёт', 'рассчетный счёт',
@@ -343,11 +343,12 @@ function ccRefundReadXlsx(string $path, int $fileSize): array
         [$customerFullName, $fullNameIssue] = ccRefundOptionalFullNameValue($values['customer_full_name']);
         [$customerPhone, $phoneIssue] = ccRefundOptionalPhoneValue($values['customer_phone']);
         [$customerEmail, $emailIssue] = ccRefundOptionalEmailValue($values['customer_email']);
+        if ($customerPhone !== '' && $emailIssue !== null) $emailIssue = null;
         $contactIssue = ccRefundContactIssue($customerPhone, $customerEmail);
         [$bankBic, $bicIssue] = ccRefundOptionalDigitsValue(
             $values['bank_bic'],
-            10,
-            'Неверный формат БИК (ожидается 10 цифр).'
+            9,
+            'Неверный формат БИК (ожидается 9 цифр).'
         );
         [$bankAccount, $accountIssue] = ccRefundOptionalDigitsValue(
             $values['bank_account'],
@@ -414,9 +415,10 @@ function ccRefundManualRecord(array $form): array
     [$date, $dateIssue] = ccRefundOptionalDateValue($values['client_contact_date'], false);
     [$phone, $phoneIssue] = ccRefundOptionalPhoneValue($values['customer_phone']);
     [$email, $emailIssue] = ccRefundOptionalEmailValue($values['customer_email']);
+    if ($phone !== '' && $emailIssue !== null) $emailIssue = null;
     $contactIssue = ccRefundContactIssue($phone, $email);
     [$name, $nameIssue] = ccRefundOptionalFullNameValue($values['customer_full_name']);
-    [$bic, $bicIssue] = ccRefundOptionalDigitsValue($values['bank_bic'], 10, 'Неверный формат БИК (ожидается 10 цифр).');
+    [$bic, $bicIssue] = ccRefundOptionalDigitsValue($values['bank_bic'], 9, 'Неверный формат БИК (ожидается 9 цифр).');
     [$account, $accountIssue] = ccRefundOptionalDigitsValue($values['bank_account'], 20, 'Неверный формат расчётного счёта (ожидается 20 цифр).');
     $issues = array_values(array_filter([$cardIssue, $dateIssue, $phoneIssue, $emailIssue, $contactIssue,
         $nameIssue, $bicIssue, $accountIssue]));
@@ -534,43 +536,9 @@ function ccRefundQueue(PDO $pdo, array $records, int $submittedByUserId): array
     $resultRows = [];
     $acceptedRecords = [];
 
-    require_once __DIR__ . '/card_services.php';
-    $cardsToCheck = [];
-    foreach ($records as $record) {
-        if (empty($record['_rejected']) && !empty($record['card_number'])) {
-            $cardsToCheck[(string)$record['card_number']] = true;
-        }
-    }
-    $organizations = [];
-    foreach (array_chunk(array_keys($cardsToCheck), 50) as $cardBatch) {
-        $organizations += ccFindGiftCardOrganizationsBatch($cardBatch);
-    }
-    if ($organizations) ccStoreCardOrganizations($pdo, $organizations);
-
     foreach ($records as $record) {
         $rowNumber = (int)($record['_row_number'] ?? 0);
         $issues = is_array($record['_issues'] ?? null) ? $record['_issues'] : [];
-        if (empty($record['_rejected'])) {
-            try {
-                $organization = $organizations[(string)$record['card_number']] ?? [];
-                if (isset($organization['error']) || !array_key_exists('organization_id', $organization)) {
-                    throw new RuntimeException((string)($organization['error'] ?? 'Ответ Datareon отсутствует.'));
-                }
-                $organizationId = $organization['organization_id'];
-                if ($organizationId === null) {
-                    $issues[] = 'Карта не найдена в Datareon.';
-                    $record['_rejected'] = true;
-                } elseif ($organizationId !== CC_ALLOWED_REFUND_ORGANIZATION_ID) {
-                    $issues[] = 'Карта выпущена другой организацией.';
-                    $record['_rejected'] = true;
-                } else {
-                    $record['organization_id'] = $organizationId;
-                }
-            } catch (Throwable $e) {
-                $issues[] = 'Проверка организации не выполнена: ' . $e->getMessage();
-                $record['_rejected'] = true;
-            }
-        }
         if (!empty($record['_rejected'])) {
             $rejected++;
             $resultRows[$rowNumber] = [

@@ -108,7 +108,8 @@ function ccFindGiftCardDetails(string $cardNumber): array
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_CONNECTTIMEOUT => 3,
-            CURLOPT_TIMEOUT => 6,
+            // p11 can return its gateway error after roughly 10 seconds.
+            CURLOPT_TIMEOUT => 15,
             CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Accept: application/json'],
         ]);
         $response = curl_exec($curl);
@@ -162,7 +163,7 @@ function ccFindGiftCardOrganizationsBatch(array $cardNumbers): array
                     CURLOPT_POSTFIELDS => json_encode(['dummyField' => 0, 'organizationId' => '',
                         'giftcartNumber' => $number], JSON_THROW_ON_ERROR),
                     CURLOPT_RETURNTRANSFER => true, CURLOPT_FOLLOWLOCATION => false,
-                    CURLOPT_CONNECTTIMEOUT => 3, CURLOPT_TIMEOUT => 6,
+                    CURLOPT_CONNECTTIMEOUT => 3, CURLOPT_TIMEOUT => 15,
                     CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Accept: application/json'],
                 ]);
                 curl_multi_add_handle($multi, $curl);
